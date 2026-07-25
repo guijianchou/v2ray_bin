@@ -63,5 +63,4 @@ if [ -n "$use_node" ];then
 	[ -n "`dbus get ssconf_basic_rss_obfs_$node`" ] && dbus set ss_basic_rss_obfs=`dbus get ssconf_basic_rss_obfs_$node`
 	[ -n "`dbus get ssconf_basic_rss_obfs_param_$node`" ] && dbus set ss_basic_rss_obfs_param=`dbus get ssconf_basic_rss_obfs_param_$node`
 	[ -n "`dbus get ssconf_basic_koolgame_udp_$node`" ] && dbus set ss_basic_koolgame_udp=`dbus get ssconf_basic_koolgame_udp_$node`
-	[ -n "`dbus get ssconf_basic_use_kcp_$node`" ] && dbus set ss_basic_use_kcp=`dbus get ssconf_basic_use_kcp_$node`
 fi

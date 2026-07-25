@@ -152,8 +152,7 @@ echo_version(){
 	echo "chinadns1		1.3.2 		2017年12月09日编译"
 	echo "chinadns2		2.0.0 		2017年12月09日编译"
 	echo "ChinaDNS-NG		1.0-beta.25 	2019年08月31日编译"
-	echo "client_linux_arm5	20210922	kcptun"
-	echo "xray			$ss_basic_xray_version	"	
+	echo "xray			$ss_basic_xray_version	"
 	echo "naive		$ss_basic_naive_version	"
 	echo "hysteria		$ss_basic_hysteria_version	"
 	echo "anytls		$ss_basic_anytls_version	"
@@ -176,7 +175,6 @@ check_status(){
 	CHINADNS1=`pidof chinadns1`
 	CHINADNS=`pidof chinadns`
 	CHINADNSNG=`pidof chinadns-ng`
-	KCPTUN=`pidof client_linux_arm5`
 	HAPROXY=`pidof haproxy`
 	V2RAY=`pidof v2ray`
 	XRAY=`pidof xray`
@@ -238,10 +236,6 @@ check_status(){
 	fi
 
 	if [ -z "$ss_basic_koolgame_udp" ];then
-		if [ "$ss_basic_use_kcp" == "1" ];then
-			[ -n "$KCPTUN" ] && echo "kcptun		工作中	pid：$KCPTUN" || echo "kcptun		未运行"
-		fi
-		
 		if [ "$ss_basic_server" == "127.0.0.1" ];then
 		 	[ -n "$HAPROXY" ] && echo "haproxy		工作中	pid：$HAPROXY" || echo "haproxy		未运行"
 		fi
@@ -319,7 +313,7 @@ check_status(){
 	echo -----------------------------------------------------------------------------------------------------------------------------------
 	echo
 	MANGLE_SHOW=""
-	{ [ -n "$game_on" ] || [ "$ss_basic_mode" == "3" ] || [ "$ss_basic_udp_sync" == "1" ] || [ "$ss_basic_udp_sync" == "2" ]; } && MANGLE_SHOW=1
+	{ [ -n "$game_on" ] || [ "$ss_basic_mode" == "3" ] || [ "$ss_basic_udp_sync" == "1" ] || [ "$ss_basic_udp_sync" == "2" ] || [ "$ss_basic_udp_sync" == "3" ]; } && MANGLE_SHOW=1
 	if [ -n "$MANGLE_SHOW" ]; then
 		echo ------------------------------------------------------ mangle表 PREROUTING 链 -------------------------------------------------------
 		iptables -nvL PREROUTING -t mangle

@@ -406,16 +406,16 @@ function openssHint(itemNum) {
 		_caption = "模式说明";
 		return overlib(statusmenu, OFFSETX, -860, OFFSETY, -290, LEFT, STICKY, WIDTH, 'width', CAPTION, _caption, CLOSETITLE, '');
 	} else if (itemNum == 2) {
-		statusmenu = "此处填入你的ss/ssr/koolgame服务器的地址。</br>建议优先填入<font color='#F46'>IP地址</font>。填入域名，特别是一些服务商给的复杂域名，有时遇到无法解析会导致国外无法连接!";
+		statusmenu = "此处填入你的节点服务器的地址。</br>建议优先填入<font color='#F46'>IP地址</font>。填入域名，特别是一些服务商给的复杂域名，有时遇到无法解析会导致国外无法连接!";
 		_caption = "服务器";
 	} else if (itemNum == 3) {
-		statusmenu = "此处填入你的ss/ssr/koolgame服务器的端口";
+		statusmenu = "此处填入你的节点服务器的端口";
 		_caption = "服务器端口";
 	} else if (itemNum == 4) {
-		statusmenu = "此处填入你的ss/ssr/koolgame服务器的密码。</br><font color='#F46'>注意：</font>使用带有特殊字符的密码，可能会导致链接不上服务器。";
+		statusmenu = "此处填入你的节点服务器的密码。</br><font color='#F46'>注意：</font>使用带有特殊字符的密码，可能会导致链接不上服务器。";
 		_caption = "服务器密码";
 	} else if (itemNum == 5) {
-		statusmenu = "此处填入你的ss/ssr/koolgame服务器的加密方式。</br><font color='#F46'>建议</font>如果是自己搭建服务器，建议使用对路由器负担比较小的加密方式，例如chacha20,chacha20-ietf等。";
+		statusmenu = "此处填入你的节点服务器的加密方式。</br><font color='#F46'>建议</font>如果是自己搭建服务器，建议使用对路由器负担比较小的加密方式，例如chacha20,chacha20-ietf等。";
 		_caption = "服务器加密方式";
 	} else if (itemNum == 6) {
 		statusmenu = "此处选择你希望UDP的通道。</br>很多游戏都走udp的初衷就是加速udp连接。</br>如果你到vps的udp链接较快，可以选择udp in udp，如果你的运营商封锁了udp，可以选择udp in tcp。";
@@ -501,20 +501,20 @@ function openssHint(itemNum) {
 		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;万金油方案，DNS请求通过socks5隧道（由本地ss-local/ssr-local/v2ray提供）转发到vps，然后由vps向你定义的DNS服务器发起tcp dns解析请求，和下文中ss-tunnel类似，不过dns2socks是利用了socks5隧道代理，ss-tunnel是利用了加密UDP；该DNS方案不受到ss服务是否支持udp限制，只要能建立socoks5链接，就能使用。";
 		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;<b>模式1：</b>gfwlist.txt内的国外网站解析使用dns2socks，其余全部使用你选择的中国DNS解析。";
 		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;<b>模式2：</b>cdn.txt内的国内网站解析使用中国DNS，其余全部使用dns2socks。";
-		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;<b>特点：</b>国外解析通过vps代为请求；模式2下由cdn.txt定义国内解析名单，对cpu负担稍大，建议使用dnsmasq-fastlookup。";
+		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;<b>特点：</b>国外解析通过vps代为请求；模式2下由cdn.txt定义国内解析名单，对cpu负担稍大。";
 		//ss-tunnel
 		statusmenu += "</br><font color='#CC0066'><b>2:ss-tunnel：</b></font>"
 		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;原理是将DNS请求通过ss-tunnel/ssr-tunnel利用udp协议发送到vps，然后由vps向你定义的DNS发起udp dns解析请求，解析到正确的IP地址，其解析效果和dns2socks应该是一样的。"
 		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;<b>模式1：</b>gfwlist.txt内的国外网站解析使用ss-tunnel，其余全部使用你选择的中国DNS解析。";
 		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;<b>模式2：</b>cdn.txt内的国内网站解析使用中国DNS，其余全部使用ss-tunnel。";
-		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;<b>特点：</b>国外解析通过vps代为请求；模式2下由cdn.txt定义国内解析名单，对cpu负担稍大，建议使用dnsmasq-fastlookup。";
+		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;<b>特点：</b>国外解析通过vps代为请求；模式2下由cdn.txt定义国内解析名单，对cpu负担稍大。";
 		_caption = "国外DNS";
 		//cdns
 		statusmenu += "</br><font color='#CC0066'><b>3:cdns：</b></font>"
 		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;和chinadns2一样，支持ECS（EDNS Client Subnet），DNS请求时携带一个EDNS标签，解析成功后返回带该标签的解析结果，gfw投毒的解析结果则不会带该标签，以达到防dns污染的目的！";
 		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;<b>模式1：</b>gfwlist.txt内的国外网站解析使用cdns，其余全部使用你选择的中国DNS解析。";
 		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;<b>模式2：</b>cdn.txt内的国内网站解析使用中国DNS，其余全部使用cdns";
-		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;<b>特点：</b>国外解析直连国外DNS服务器；模式2下由cdn.txt定义国内解析名单，对cpu负担稍大，建议使用dnsmasq-fastlookup。";
+		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;<b>特点：</b>国外解析直连国外DNS服务器；模式2下由cdn.txt定义国内解析名单，对cpu负担稍大。";
 		//chinadns1
 		statusmenu += "</br><font color='#CC0066'><b>4:chinadns1：</b></font>"
 		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;使用dns2socks作为chinadns1上游DNS解析工具获取无污染的解析结果，通过chinadns1中设定的中国DNS进行请求获取国内解析结果";
@@ -534,13 +534,13 @@ function openssHint(itemNum) {
 		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;https_dns_proxy是DNS Over https（DOH）方案，dns请求走https，支持ECS，因此具有非常好的国外cdn效果！此处默认使用了cloudflare的服务（1.1.1.1和1.0.0.1）";
 		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;<b>模式1：</b>gfwlist.txt内的国外网站解析使用https_dns_proxy，其余全部使用你选择的中国DNS解析。";
 		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;<b>模式2：</b>所有国内网站+国外网站的解析全部使用https_dns_proxy，DNS解析国内外分流在chinadns2内部依靠ECS实现";	
-		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;<b>特点：</b>国外解析直连国外DNS服务器；模式2下由cdn.txt定义国内解析名单，对cpu负担稍大，建议使用dnsmasq-fastlookup。";
+		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;<b>特点：</b>国外解析直连国外DNS服务器；模式2下由cdn.txt定义国内解析名单，对cpu负担稍大。";
 		//v2ray dns
 		statusmenu += "</br><font color='#CC0066'><b>7:v2ray_dns：</b></font>"
 		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;v2ray自带的dns，通过在v2ray的json配置文件中添加一个新的传入连接来转发dns请求，使用效果应该和ss/ssr下使用ss-tunnel一样";
 		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;<b>模式1：</b>gfwlist.txt内的国外网站解析使用v2ray_dns，其余全部使用你选择的中国DNS解析。";
 		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;<b>模式2：</b>cdn.txt内的国内网站解析使用中国DNS，其余全部使用v2ray_dns。";
-		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;<b>特点：</b>国外解析通过vps代为请求；模式2下由cdn.txt定义国内解析名单，对cpu负担稍大，建议使用dnsmasq-fastlookup。";
+		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;<b>特点：</b>国外解析通过vps代为请求；模式2下由cdn.txt定义国内解析名单，对cpu负担稍大。";
 		//SmartDNS
 		statusmenu += "</br><font color='#CC0066'><b>8:SmartDNS：</b></font>"
 		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;SmartDNS是一个运行在本地的DNS服务器，SmartDNS接受本地客户端的DNS查询请求，从多个上游DNS服务器获取DNS查询结果，并将访问速度最快的结果返回给客户端，提高网络访问速度。";
@@ -551,7 +551,7 @@ function openssHint(itemNum) {
 		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;<b>模式2（仅中国DNS设定为SmartDNS）：</b>cdn.txt内的国内网站解析使用SmartDNS的5335端口解析，其余全部使用使用你选择外国DNS方案解析。";
 		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;<b>模式2（仅外国DNS设定为SmartDNS）：</b>cdn.txt内的国内网站解析使用你选择的中国DNS解析，其余全部使用SmartDNS的7913端口解析。";
 		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;<b>模式2（中国DNS和外国DNS均设定为SmartDNS）：</b>cdn.txt内的国内网站解析使用SmartDNS的5335端口解析，其余全部使用SmartDNS的7913端口解析。";
-		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;<b>特点：</b>国外解析直连国外DNS服务器；模式2下由cdn.txt定义国内解析名单，对cpu负担稍大，建议使用dnsmasq-fastlookup。另外因为SmartDNS只会给出一个\"最优的\"解析结果，而可能对一些靠多个cdn解析同时连接下载加速的应用造成速度损失。";
+		statusmenu += "</br>&nbsp;&nbsp;&nbsp;&nbsp;<b>特点：</b>国外解析直连国外DNS服务器；模式2下由cdn.txt定义国内解析名单，对cpu负担稍大。另外因为SmartDNS只会给出一个\"最优的\"解析结果，而可能对一些靠多个cdn解析同时连接下载加速的应用造成速度损失。";
 		return overlib(statusmenu, OFFSETX, -860, OFFSETY, -290, LEFT, STICKY, WIDTH, 'width', CAPTION, _caption, CLOSETITLE, '');
 	} else if (itemNum == 27) {
 		statusmenu = "</br><font color='#CC0066'><b>1:不勾选（自动生成json）：</b></font>"
@@ -635,6 +635,7 @@ function openssHint(itemNum) {
 		statusmenu += "</br></br> 插件默认只有选择游戏模式后 UDP 才会走代理；此选项可让大陆白名单等模式的 UDP 也按 chnroute 分流。"
 		statusmenu += "</br></br><b>关闭：</b>UDP 不走代理（默认）。此时境外 QUIC/HTTP3 由防泄漏规则拦截首包，强制浏览器回退 TCP 走代理。"
 		statusmenu += "</br></br><b>仅代理 QUIC（推荐）：</b>只把 QUIC（UDP/443）按 chnroute 分流走代理，其余 UDP（BT、视频、游戏等）一律直连。既让 Google/YouTube 等 HTTP/3 站点正常走代理，又避免大流量 UDP 涌入 TPROXY，路由器负载低。"
+		statusmenu += "</br></br><b>仅代理 QUIC+Game：</b>在仅代理 QUIC 的基础上，把 Game Port 输入框指定的 UDP 端口一并按 chnroute 分流（境外游戏服走代理，国内直连）。端口格式：单端口或端口段（低-高），逗号隔开，如 27015,7777-7778（方舟生存飞升 ASA）；保存与加载前均做语法检查，非法则不下发规则；留空时行为与仅代理 QUIC 完全一致。443 无需填入（QUIC 档已默认覆盖，重复填入亦无碍，仅多一次无害的规则匹配）。"
 		statusmenu += "</br></br><b>全量 UDP：</b>所有 UDP 都按 chnroute 分流走代理。分流最彻底，但逐包处理 + 用户态转发，路由器 CPU 负载最高，BT/P2P 场景尤其明显。"
 		statusmenu += "</br></br>提示：ACL 中存在游戏模式主机、或主模式为游戏模式时，为保证游戏 UDP，会自动按全量 UDP 处理。"
 		_caption = "同步UDP与TCP";
@@ -764,7 +765,7 @@ function openssHint(itemNum) {
 		_caption = "地址（address）";
 		return overlib(statusmenu, OFFSETX, -560, OFFSETY, -90, LEFT, STICKY, WIDTH, 'width', CAPTION, _caption, CLOSETITLE, '');
 	} else if (itemNum == 52) {
-		statusmenu = "KCP协议，ss-libev混淆，负载均衡下均不支持UDP！"
+		statusmenu = "ss-libev混淆、负载均衡下均不支持UDP！"
 		statusmenu += "</br>请检查你是否启用了其中之一。"
 		_caption = "udp";
 	} else if (itemNum == 54) {
@@ -772,7 +773,7 @@ function openssHint(itemNum) {
 		_caption = "协议参数（protocol）";
 	} else if (itemNum == 105) {
 		width = "600px";
-		statusmenu = "<b>帮助信息：</b><br />dnsmasq配置文件里的ipset,address,server规则一多，路由器CPU使用率就上去了。<br />而现在gfwlist 5000+条server规则，5000+多条ipset规则！<br />而为了更好的国内解析效果，还引入了40000+条的server规则！<br />一旦访问网页，每次域名解析的时候，dnsmasq都会遍历这些名单，造成大量的cpu消耗！！<br />而改进版的dnsmasq，这里称dnsmasq-fastlookup，见原作者infinet帖<a href='https://www.v2ex.com/t/172010' target='_blank'><u><font color='#00F'>作者原帖</font></u></a><br />大概的意思就是原版的dnsmasq很慢（因为遍历查询方式）<br />而原作者infinet改的dnsmasq很快（因为hash查询方式）<br />可以大大的解放路由器cpu因dns查询带来的消耗！加快dns查询速度！<br />相关链接：<a href='https://github.com/infinet/dnsmasq' target='_blank'><u><font color='#00F'>dnsmasq-fastlookup源码</font></u></a>，<a href='http://koolshare.cn/thread-65484-1-1.html' target='_blank'><u><font color='#00F'>dnsmasq-fastlookup性能测试</font></u></a><br />-----------------------------------------------------------------------------------------<br />原先dnsmasq-fastlookup有问题可能会导致进程死掉，造成无法上网，而现在经过作者更新，已经相当稳定，故而添加此功能。<br />请根据自己实际需要选择替换方案~"
+		statusmenu = "<b>帮助信息：</b><br />dnsmasq配置里的server/ipset/address规则一多，每次域名解析的遍历开销就会推高路由器CPU占用：本插件在国外优先模式下会加载gfwlist（5000+条server与ipset规则），必要时还会加载由cdn.txt生成的cdn.conf（现已有11万+条server规则）。<br />dnsmasq-fastlookup是infinet于2015年基于dnsmasq 2.7x修改的版本，把遍历查询改为hash查询，在AM380这类老固件上可显著降低DNS解析的CPU消耗：<a href='https://www.v2ex.com/t/172010' target='_blank'><u><font color='#00F'>作者原帖</font></u></a>，<a href='https://github.com/infinet/dnsmasq' target='_blank'><u><font color='#00F'>源码</font></u></a>。<br />-----------------------------------------------------------------------------------------<br /><b>安全机制：</b>该二进制年代较久，插件每次替换前都会用它对当前dnsmasq配置做语法预检（--test），不兼容会自动放弃替换并继续使用原版；替换/还原过程不再中断DNS服务；「DNS劫持」等功能与替换与否完全解耦。<br />若无明显CPU压力，保持【0】不替换即可。"
 		_caption = "说明：";
 	} else if (itemNum == 106) {
 		width = "600px";

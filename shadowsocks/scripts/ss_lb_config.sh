@@ -67,13 +67,7 @@ if [ "$ss_lb_heartbeat" == "1" ];then
 	do
 		nick_name=`dbus get ssconf_basic_name_$node`
 		if [ ! -z "$nick_name" ];then
-			kcp=`dbus get ssconf_basic_use_kcp_$node`
-			if [ "$kcp" == "1" ];then
-				port="1091"
-				name=`dbus get ssconf_basic_server_$node`:kcp
-				server="127.0.0.1"
-			else
-				port=`dbus get ssconf_basic_port_$node`
+			port=`dbus get ssconf_basic_port_$node`
 				name=`dbus get ssconf_basic_server_$node`:$port
 				server=`dbus get ssconf_basic_server_$node`
 				IFIP=`echo $server|grep -E "([0-9]{1,3}[\.]){3}[0-9]{1,3}|:"`
@@ -94,9 +88,8 @@ if [ "$ss_lb_heartbeat" == "1" ];then
 						server=`dbus get ssconf_basic_server_$node`
 					fi
 				else
-					echo_date 检测到【"$nick_name"】节点已经是IP格式，跳过解析... 
+					echo_date 检测到【"$nick_name"】节点已经是IP格式，跳过解析...
 				fi
-			fi
 			weight=`dbus get ssconf_basic_weight_$node`
 			up=`dbus get ss_lb_up`
 			down=`dbus get ss_lb_down`
@@ -131,13 +124,7 @@ else
 	do
 		nick_name=`dbus get ssconf_basic_name_$node`
 		if [ ! -z "$nick_name" ];then
-			kcp=`dbus get ssconf_basic_use_kcp_$node`
-			if [ "$kcp" == 1 ];then
-				port="1091"
-				name=`dbus get ssconf_basic_server_$node`:kcp
-				server="127.0.0.1"
-			else
-				port=`dbus get ssconf_basic_port_$node`
+			port=`dbus get ssconf_basic_port_$node`
 				name=`dbus get ssconf_basic_server_$node`:$port
 				server=`dbus get ssconf_basic_server_$node`
 				IFIP=`echo $server|grep -E "([0-9]{1,3}[\.]){3}[0-9]{1,3}|:"`
@@ -158,8 +145,7 @@ else
 						server=`dbus get ssconf_basic_server_$node`
 					fi
 				else
-					echo_date 检测到【"$nick_name"】节点已经是IP格式，跳过解析... 
-				fi
+				echo_date 检测到【"$nick_name"】节点已经是IP格式，跳过解析...
 			fi
 			port=`dbus get ssconf_basic_port_$node`
 			weight=`dbus get ssconf_basic_weight_$node`

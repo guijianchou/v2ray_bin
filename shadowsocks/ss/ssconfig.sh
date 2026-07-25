@@ -31,7 +31,7 @@ lan_ipaddr=$(nvram get lan_ipaddr)
 ip_prefix_hex=`nvram get lan_ipaddr | awk -F "." '{printf ("0x%02x", $1)} {printf ("%02x", $2)} {printf ("%02x", $3)} {printf ("00/0xffffff00\n")}'`
 [ "$ss_basic_mode" == "4" ] && ss_basic_mode=3
 game_on=`dbus list ss_acl_mode|cut -d "=" -f 2 | grep 3`
-[ -n "$game_on" ] || [ "$ss_basic_mode" == "3" ] || [ "$ss_basic_udp_sync" == "1" ] || [ "$ss_basic_udp_sync" == "2" ] && mangle=1
+[ -n "$game_on" ] || [ "$ss_basic_mode" == "3" ] || [ "$ss_basic_udp_sync" == "1" ] || [ "$ss_basic_udp_sync" == "2" ] || [ "$ss_basic_udp_sync" == "3" ] && mangle=1
 ss_basic_password=`echo $ss_basic_password|base64_decode`
 ARG_V2RAY_PLUGIN=""
 
@@ -77,7 +77,7 @@ if [ "$ss_basic_type" != "0" ];then
 	[ "$ss_acl_default_mode" == "3" ] && ss_acl_default_mode=2
 	# game_on已清空且mode!=3，mangle仅由「同步UDP与TCP」档位决定
 	mangle=""
-	[ "$ss_basic_udp_sync" == "1" ] || [ "$ss_basic_udp_sync" == "2" ] && mangle=1
+	[ "$ss_basic_udp_sync" == "1" ] || [ "$ss_basic_udp_sync" == "2" ] || [ "$ss_basic_udp_sync" == "3" ] && mangle=1
 fi
 
 # UDP透明入站能力校验："同步UDP与TCP"三档(0关闭/2仅QUIC/1全量)与游戏模式共用此判定，
@@ -94,7 +94,7 @@ case "$ss_basic_type" in
 	4) case "$ss_basic_trojan_binary" in Trojan|Trojan-Go) udp_tproxy_supported="1" ;; esac ;;
 esac
 if [ "$udp_tproxy_supported" != "1" ]; then
-	if [ "$ss_basic_udp_sync" == "1" ] || [ "$ss_basic_udp_sync" == "2" ] || [ -n "$game_on" ] || [ "$ss_basic_mode" == "3" ]; then
+	if [ "$ss_basic_udp_sync" == "1" ] || [ "$ss_basic_udp_sync" == "2" ] || [ "$ss_basic_udp_sync" == "3" ] || [ -n "$game_on" ] || [ "$ss_basic_mode" == "3" ]; then
 		echo_date "当前节点核心(naive/hysteria2/anytls等)无透明UDP入站能力，UDP同步/游戏UDP无法透明代理，已降级纯TCP（境外QUIC由filter层拦截促TCP回退，其余境外UDP直连）。"
 	fi
 	ss_basic_udp_sync="0"
@@ -290,11 +290,6 @@ kill_process(){
 	if [ -n "$smartdns_process" ]; then
 		echo_date 关闭smartdns进程...
 		killall smartdns >/dev/null 2>&1
-	fi
-	client_linux_arm5_process=`pidof client_linux_arm5`
-	if [ -n "$client_linux_arm5_process" ];then 
-		echo_date 关闭kcp协议进程...
-		killall client_linux_arm5 >/dev/null 2>&1
 	fi
 	haproxy_process=`pidof haproxy`
 	if [ -n "$haproxy_process" ];then 
@@ -886,10 +881,19 @@ create_dnsmasq_conf(){
 			else
 				echo_date 自动判断dns解析使用国外优先模式...
 				echo_date 国外解析方案【$(get_dns_name $ss_foreign_dns)】，需要加载cdn.conf提供国内cdn...
-				echo_date 建议将系统dnsmasq替换为dnsmasq-fastlookup，以减轻路由cpu消耗...
-				echo_date 生成cdn加速列表到/tmp/sscdn.conf，加速用的dns：$CDN
-				echo "#for china site CDN acclerate" >>/tmp/sscdn.conf
-				cat /koolshare/ss/rules/cdn.txt | sed "s/^/server=&\/./g" | sed "s/$/\/&$CDN#$DNSC_PORT/g" | sort | awk '{if ($0!=line) print;line=$0}' >>/tmp/sscdn.conf
+				echo_date 提示：cdn.conf规则量较大，如CPU占用偏高可考虑【替换为dnsmasq-fastlookup】（详见Web端说明）。
+				# cdn列表按"cdn.txt内容md5+加速DNS"缓存于/tmp：同一次开机内切换节点/重启插件直接复用，
+				# 免去11万+行的sed/sort/去重开销(ARMv7上数秒)；cdn.txt更新或更换加速DNS后自动重新生成。
+				CDN_CACHE_KEY="$(md5sum /koolshare/ss/rules/cdn.txt 2>/dev/null | awk '{print $1}')_${CDN}_${DNSC_PORT}"
+				if [ -s /tmp/sscdn.cache ] && [ "$(cat /tmp/sscdn.cache.key 2>/dev/null)" == "$CDN_CACHE_KEY" ];then
+					echo_date 复用本次开机已生成的cdn加速列表缓存，加速用的dns：$CDN
+				else
+					echo_date 生成cdn加速列表到/tmp/sscdn.cache，加速用的dns：$CDN
+					echo "#for china site CDN acclerate" > /tmp/sscdn.cache
+					cat /koolshare/ss/rules/cdn.txt | sed "s/^/server=&\/./g" | sed "s/$/\/&$CDN#$DNSC_PORT/g" | sort | awk '{if ($0!=line) print;line=$0}' >> /tmp/sscdn.cache
+					echo "$CDN_CACHE_KEY" > /tmp/sscdn.cache.key
+				fi
+				ln -sf /tmp/sscdn.cache /tmp/sscdn.conf
 			fi
 		fi
 	fi
@@ -976,39 +980,6 @@ auto_start(){
 	chmod +x /jffs/scripts/wan-start
 }
 
-start_kcp(){
-	# Start kcp
-	if [ "$ss_basic_use_kcp" == "1" ];then
-		echo_date 启动KCP协议进程，为了更好的体验，建议在路由器上创建虚拟内存.
-		export GOGC=30
-		[ -z "$ss_basic_kcp_server" ] && ss_basic_kcp_server="$ss_basic_server"
-		if [ "$ss_basic_kcp_method" == "1" ];then
-			[ -n "$ss_basic_kcp_encrypt" ] && KCP_CRYPT="--crypt $ss_basic_kcp_encrypt"
-			[ -n "$ss_basic_kcp_password" ] && KCP_KEY="--key $ss_basic_kcp_password" || KCP_KEY=""
-			[ -n "$ss_basic_kcp_sndwnd" ] && KCP_SNDWND="--sndwnd $ss_basic_kcp_sndwnd" || KCP_SNDWND=""
-			[ -n "$ss_basic_kcp_rcvwnd" ] && KCP_RNDWND="--rcvwnd $ss_basic_kcp_rcvwnd" || KCP_RNDWND=""
-			[ -n "$ss_basic_kcp_mtu" ] && KCP_MTU="--mtu $ss_basic_kcp_mtu" || KCP_MTU=""
-			[ -n "$ss_basic_kcp_conn" ] && KCP_CONN="--conn $ss_basic_kcp_conn" || KCP_CONN=""
-			[ "$ss_basic_kcp_nocomp" == "1" ] && COMP="--nocomp" || COMP=""
-			[ -n "$ss_basic_kcp_mode" ] && KCP_MODE="--mode $ss_basic_kcp_mode" || KCP_MODE=""
-
-			start-stop-daemon -S -q -b -m \
-			-p /tmp/var/kcp.pid \
-			-x /koolshare/bin/client_linux_arm5 \
-			-- -l 127.0.0.1:1091 \
-			-r $ss_basic_kcp_server:$ss_basic_kcp_port \
-			$KCP_CRYPT $KCP_KEY $KCP_SNDWND $KCP_RNDWND $KCP_MTU $KCP_CONN $COMP $KCP_MODE $ss_basic_kcp_extra
-		else
-			start-stop-daemon -S -q -b -m \
-			-p /tmp/var/kcp.pid \
-			-x /koolshare/bin/client_linux_arm5 \
-			-- -l 127.0.0.1:1091 \
-			-r $ss_basic_kcp_server:$ss_basic_kcp_port \
-			$ss_basic_kcp_parameter
-		fi
-	fi
-}
-
 start_ss_redir(){
 	if [ "$ss_basic_type" == "1" ];then
 		echo_date 开启ssr-redir进程，用于透明代理.
@@ -1022,32 +993,16 @@ start_ss_redir(){
 	fi
 
 	# Start ss-redir
-	if [ "$ss_basic_use_kcp" == "1" ];then
-		if [ "$mangle" == "1" ];then
-			# tcp go kcp
-			echo_date $BIN的 tcp 走kcptun.
-			$BIN -s 127.0.0.1 -p 1091 -c $CONFIG_FILE $ARG_V2RAY_PLUGIN -f /var/run/shadowsocks.pid >/dev/null 2>&1
-			# udp go ss
-			echo_date $BIN的 udp 走$BIN.
-			$BIN -c $CONFIG_FILE $ARG_V2RAY_PLUGIN -U -f /var/run/shadowsocks.pid >/dev/null 2>&1
-		else
-			# tcp only go kcp
-			echo_date $BIN的 tcp 走kcptun.
-			echo_date $BIN的 udp 未开启.
-			$BIN -s 127.0.0.1 -p 1091 -c $CONFIG_FILE $ARG_V2RAY_PLUGIN -f /var/run/shadowsocks.pid >/dev/null 2>&1
-		fi
+	if [ "$mangle" == "1" ];then
+		# tcp udp go ss
+		echo_date $BIN的 tcp 走$BIN.
+		echo_date $BIN的 udp 走$BIN.
+		$BIN -c $CONFIG_FILE $ARG_V2RAY_PLUGIN -u -f /var/run/shadowsocks.pid >/dev/null 2>&1
 	else
-		if [ "$mangle" == "1" ];then
-			# tcp udp go ss
-			echo_date $BIN的 tcp 走$BIN.
-			echo_date $BIN的 udp 走$BIN.
-			$BIN -c $CONFIG_FILE $ARG_V2RAY_PLUGIN -u -f /var/run/shadowsocks.pid >/dev/null 2>&1
-		else
-			# tcp only go ss
-			echo_date $BIN的 tcp 走$BIN.
-			echo_date $BIN的 udp 未开启.
-			$BIN -c $CONFIG_FILE $ARG_V2RAY_PLUGIN -f /var/run/shadowsocks.pid >/dev/null 2>&1		
-		fi
+		# tcp only go ss
+		echo_date $BIN的 tcp 走$BIN.
+		echo_date $BIN的 udp 未开启.
+		$BIN -c $CONFIG_FILE $ARG_V2RAY_PLUGIN -f /var/run/shadowsocks.pid >/dev/null 2>&1
 	fi
 	echo_date $BIN 启动完毕！.
 }
@@ -2283,6 +2238,38 @@ apply_ipv6_leak_guard(){
 #   - REJECT 目标不可用时回退 DROP。
 # 与 UDP 同步三档配合：关闭/仅QUIC 档未被 TPROXY 接管的境外 QUIC 由此拦截促回退，其余 UDP 直连；
 # 全量档境外 UDP 均被 TPROXY，此处只兜底漏网的 QUIC。
+# 校验并规范化Game端口表达式("27015,7777-7778")为iptables multiport格式("27015,7777:7778")。
+# 合法：逗号分隔，每段为单端口或"低-高"端口段，端口1-65535，段内低≤高，multiport总槽位≤15(端口段占2)。
+# 非法或为空时无输出且返回1——调用方必须以输出非空为下发规则的前提，语法检查不通过绝不加规则。
+validate_game_ports(){
+	local input=$(echo "$1" | sed 's/[[:space:]]//g')
+	[ -z "$input" ] && return 1
+	# 整体形状预检：只允许数字/短横线/逗号的合法组合，杜绝任何非法字符进入后续拼接
+	echo "$input" | grep -qE '^[0-9]{1,5}(-[0-9]{1,5})?(,[0-9]{1,5}(-[0-9]{1,5})?)*$' || return 1
+	local out="" seg lo hi slots=0
+	local OLD_IFS="$IFS"
+	IFS=','
+	for seg in $input; do
+		case "$seg" in
+			*-*)
+				lo=${seg%-*}
+				hi=${seg#*-}
+				[ "$lo" -ge 1 ] && [ "$lo" -le 65535 ] && [ "$hi" -ge 1 ] && [ "$hi" -le 65535 ] && [ "$lo" -le "$hi" ] || { IFS="$OLD_IFS"; return 1; }
+				out="${out},${lo}:${hi}"
+				slots=$((slots + 2))
+				;;
+			*)
+				[ "$seg" -ge 1 ] && [ "$seg" -le 65535 ] || { IFS="$OLD_IFS"; return 1; }
+				out="${out},${seg}"
+				slots=$((slots + 1))
+				;;
+		esac
+		[ "$slots" -gt 15 ] && { IFS="$OLD_IFS"; return 1; }
+	done
+	IFS="$OLD_IFS"
+	echo "${out#,}"
+}
+
 apply_forward_guard(){
 	[ "$ss_basic_mode" == "2" ] || return 0
 	# 安全护栏：chnroute 集为空/未就绪时（如规则下载失败），大陆 IP 会被误判为境外而
@@ -2330,6 +2317,11 @@ apply_forward_guard(){
 apply_dns_force(){
 	[ "$ss_basic_dns_hijack" == "2" ] || return 1
 
+	# TCP/53 能力探测（软降级）：本机无 TCP/53 监听则跳过 TCP 改道，
+	# 避免把 TCP DNS 改道到不应答端口导致客户端 TCP 超时（"转圈"）。UDP 强制 + DoT/DoH 仍生效。
+	local tcp53_ok=0
+	netstat -tnl 2>/dev/null | grep -qE "[:.]53[[:space:]]" && tcp53_ok=1
+
 	# 明文 DNS 改道：-I PREROUTING 1 确保先于 nat SHADOWSOCKS 链，否则 TCP/53 发往境外
 	# 解析器会命中 !chnroute 被 REDIRECT 进代理。目的为本机的 53 不改道，避免环路。
 	local br dst applied=0
@@ -2337,13 +2329,14 @@ apply_dns_force(){
 		dst=$(ifconfig "$br" | grep "inet addr" | awk '{print $2}' | awk -F: '{print $2}')
 		[ -n "$dst" ] || continue
 		iptables -t nat -I PREROUTING 1 -i "$br" -p udp --dport 53 ! -d "$dst" -j DNAT --to-destination "$dst":53 >/dev/null 2>&1 && applied=1
-		iptables -t nat -I PREROUTING 1 -i "$br" -p tcp --dport 53 ! -d "$dst" -j DNAT --to-destination "$dst":53 >/dev/null 2>&1
+		[ "$tcp53_ok" == "1" ] && iptables -t nat -I PREROUTING 1 -i "$br" -p tcp --dport 53 ! -d "$dst" -j DNAT --to-destination "$dst":53 >/dev/null 2>&1
 	done
 	if [ "$applied" != "1" ]; then
 		echo_date "DNS劫持(all)：53 改道规则写入失败，自动回退默认劫持(default)。"
 		clean_dns_force
 		return 1
 	fi
+	[ "$tcp53_ok" != "1" ] && echo_date "DNS劫持(all)：本机未监听 TCP/53，已跳过 TCP/53 改道（仅 UDP 强制 + DoT/DoH）。"
 
 	# 加密 DNS 拦截链（REJECT 不可用自动 DROP）
 	ipset -! create ss_doh nethash >/dev/null 2>&1 && ipset flush ss_doh >/dev/null 2>&1
@@ -2701,26 +2694,39 @@ apply_nat_rules(){
 	# 如果是主模式游戏模式，则把SHADOWSOCKS链中剩余udp流量转发给SHADOWSOCKS_GAM链
 	# 如果主模式不是游戏模式，则不需要把SHADOWSOCKS链中剩余udp流量转发给SHADOWSOCKS_GAM，不然会造成其他模式主机的udp也走游戏模式
 	###[ "$mangle" == "1" ] && ss_acl_default_mode=3
-	[ "$ss_acl_default_mode" != "0" ] && [ "$ss_acl_default_mode" != "3" ] && [ "$ss_basic_udp_sync" != "1" ] && [ "$ss_basic_udp_sync" != "2" ]  && ss_acl_default_mode=0
-	[ "$mangle" == "1" ] && { [ "$ss_basic_mode" == "3" ] || [ "$ss_basic_udp_sync" == "1" ] || [ "$ss_basic_udp_sync" == "2" ]; } && iptables -t mangle -A SHADOWSOCKS -p udp -j $(get_action_chain $ss_acl_default_mode)
+	[ "$ss_acl_default_mode" != "0" ] && [ "$ss_acl_default_mode" != "3" ] && [ "$ss_basic_udp_sync" != "1" ] && [ "$ss_basic_udp_sync" != "2" ] && [ "$ss_basic_udp_sync" != "3" ]  && ss_acl_default_mode=0
+	[ "$mangle" == "1" ] && { [ "$ss_basic_mode" == "3" ] || [ "$ss_basic_udp_sync" == "1" ] || [ "$ss_basic_udp_sync" == "2" ] || [ "$ss_basic_udp_sync" == "3" ]; } && iptables -t mangle -A SHADOWSOCKS -p udp -j $(get_action_chain $ss_acl_default_mode)
 	# 重定所有流量到 SHADOWSOCKS
 	KP_NU=`iptables -nvL PREROUTING -t nat |sed 1,2d | sed -n '/KOOLPROXY/='|head -n1`
 	[ "$KP_NU" == "" ] && KP_NU=0
 	INSET_NU=`expr "$KP_NU" + 1`
 	iptables -t nat -I PREROUTING "$INSET_NU" -p tcp -j SHADOWSOCKS
 	if [ "$mangle" == "1" ]; then
-		# 仅QUIC模式(ss_basic_udp_sync=2)且无游戏需求时，只把QUIC(UDP/443)导入透明代理链，
-		# 其余UDP一律直连，避免BT/视频/游戏等大流量UDP涌入TPROXY拖垮路由器CPU。
+		# 仅QUIC(=2)/仅QUIC+Game(=3)且无游戏需求时，只把QUIC(UDP/443)（及3档校验通过的Game端口）
+		# 导入透明代理链，其余UDP一律直连，避免BT/视频等大流量UDP涌入TPROXY拖垮路由器CPU。
 		# 存在游戏模式主机(game_on)或主模式为游戏模式时，游戏需要全量UDP，自动回退到全量代理。
 		# 所有hook限定 -i br+：只接管LAN入站UDP，防WAN侧/其他接口的UDP误进TPROXY热路径。
 		# 用 -I PREROUTING 1 插到最前(B2)：确保插件先于其它mangle规则看到LAN UDP，避免被抢先改道。
-		if [ "$ss_basic_udp_sync" == "2" ] && [ -z "$game_on" ] && [ "$ss_basic_mode" != "3" ]; then
+		if { [ "$ss_basic_udp_sync" == "2" ] || [ "$ss_basic_udp_sync" == "3" ]; } && [ -z "$game_on" ] && [ "$ss_basic_mode" != "3" ]; then
 			# 黑名单目标是"强制走代理"语义，其UDP全端口一并导入代理链(黑名单条目少，不增负载)，
-			# 与全量档一致；两条hook都跳SHADOWSOCKS，链内white-first + mode语义统一决策。
+			# 与全量档一致；所有hook都跳SHADOWSOCKS，链内white-first + mode语义统一决策，
+			# 因此Game端口同样按国内外分流：境外游戏服走代理，国内游戏服直连。
 			iptables -t mangle -I PREROUTING 1 -i br+ -p udp -m set --match-set black_list dst -j SHADOWSOCKS
 			# 普通目标只把QUIC(UDP/443)导入代理，其余UDP直连，降低ARMv7负载。
 			iptables -t mangle -I PREROUTING 1 -i br+ -p udp --dport 443 -j SHADOWSOCKS
-			echo_date 仅代理QUIC模式：境外QUIC（UDP/443）与黑名单目标UDP导入透明代理，其余UDP直连以降低路由器负载。
+			GAME_PORTS=""
+			[ "$ss_basic_udp_sync" == "3" ] && GAME_PORTS=$(validate_game_ports "$ss_basic_udp_sync_game_port")
+			if [ -n "$GAME_PORTS" ]; then
+				iptables -t mangle -I PREROUTING 1 -i br+ -p udp -m multiport --dports $GAME_PORTS -j SHADOWSOCKS
+				echo_date "仅代理QUIC+Game模式：境外QUIC（UDP/443）、Game端口【$(echo $GAME_PORTS | sed 's/:/-/g')】与黑名单目标UDP导入透明代理，其余UDP直连。"
+			elif [ "$ss_basic_udp_sync" == "3" ]; then
+				if [ -n "$(echo "$ss_basic_udp_sync_game_port" | sed 's/[[:space:]]//g')" ]; then
+					echo_date "Game端口【$ss_basic_udp_sync_game_port】语法非法（应如 27015,7777-7778，端口1-65535，总槽位≤15），已忽略，不代理该端口！"
+				fi
+				echo_date "仅代理QUIC+Game模式：Game端口未配置或未通过语法检查，本次仅代理境外QUIC（UDP/443）与黑名单目标UDP，其余UDP直连。"
+			else
+				echo_date 仅代理QUIC模式：境外QUIC（UDP/443）与黑名单目标UDP导入透明代理，其余UDP直连以降低路由器负载。
+			fi
 		else
 			iptables -t mangle -I PREROUTING 1 -i br+ -p udp -j SHADOWSOCKS
 		fi
@@ -3095,7 +3101,6 @@ apply_ss(){
 	[ "$ss_basic_type" == "5" ] && start_naiveproxy
 	[ "$ss_basic_type" == "4" -a "$ss_basic_trojan_binary" == "Hysteria2" ] && start_hy2
 	[ "$ss_basic_type" == "4" -a "$ss_basic_trojan_binary" == "AnyTLS" ] && start_anytls
-	[ "$ss_basic_type" != "2" ] && start_kcp
 	[ "$ss_basic_type" != "2" ] && start_dns
 	# dnsmasq替换(fastlookup)：bind mount不影响运行中的进程，由紧随的restart_dnsmasq完成换血；
 	# 放在create_dnsmasq_conf之后、load_nat之前，重启后即为最终形态。

@@ -119,11 +119,6 @@ function getAllConfigs() {
 			}
 		}
 		//空值为0
-		if (typeof db_ss[p + "_use_kcp_" + field] == "undefined") {
-			obj["use_kcp"] = '0';
-		} else {
-			obj["use_kcp"] = db_ss[p + "_use_kcp_" + field];
-		}
 		if (typeof db_ss[p + "_use_lb_" + field] == "undefined") {
 			obj["use_lb"] = '0';
 		} else {

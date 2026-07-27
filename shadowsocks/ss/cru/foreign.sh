@@ -6,9 +6,9 @@ ret=`/koolshare/bin/httping www.google.com.tw -s -Z -c1 -f -t 3 2>/dev/null|sed 
 S1=`echo $ret|grep -Eo "200 OK"`
 if [ -n "$S1" ]; then
 	S2=`echo $ret|sed 's/time=//g'|awk '{printf "%.0f ms\n",$(NF -3)}'`
-	log='国外链接 【'$LOGTIME'】 ✓&nbsp;&nbsp;'$S2''
+	log="国外链接 【${LOGTIME}】 <span class='ss-chip ss-chip-ok'>✓&nbsp;&nbsp;${S2}</span>"
 else
-	log='国外链接 【'$LOGTIME'】 <font color='#FF0000'>X</font>'
+	log="国外链接 【${LOGTIME}】 <span class='ss-chip ss-chip-crit'>X</span>"
 fi
 
 nvram set ss_foreign_state="$log"

@@ -80,25 +80,143 @@ if [ "$ss_basic_type" != "0" ];then
 	[ "$ss_basic_udp_sync" == "1" ] || [ "$ss_basic_udp_sync" == "2" ] || [ "$ss_basic_udp_sync" == "3" ] && mangle=1
 fi
 
+# 「DNS劫持=关闭」已从界面移除：不劫持会让黑白名单里的【域名】条目直接失效
+# （域名条目是靠客户端经本机 dnsmasq 解析时写 ipset 才生效的），等于把核心分流能力关掉。
+# 历史存量若存的是 0，这里迁移成 1（默认档）；空值由 install.sh 补默认值。
+# 后端 chromecast 仍保留 *) 分支做兜底，不依赖本迁移。
+if [ "$ss_basic_dns_hijack" == "0" ];then
+	echo_date "【DNS劫持】：检测到历史配置为【关闭】，该选项已移除（不劫持会使黑白名单的域名条目失效），已自动切换为【默认】档。"
+	ss_basic_dns_hijack="1"
+	dbus set ss_basic_dns_hijack=1
+fi
+
 # UDP透明入站能力校验："同步UDP与TCP"三档(0关闭/2仅QUIC/1全量)与游戏模式共用此判定，
 # 档位即开关，无额外门禁。支持透明UDP的核心：
-# - ss-redir系(type 0/1/2: ss-redir/rss-redir/koolgame)：ss-redir原生 -U + mangle TPROXY→3333；
+# - ss-redir系(type 0/1: ss-redir/rss-redir)：ss-redir原生 -U + mangle TPROXY→3333；
 # - Xray系(type 3: v2ray/xray/ss2022, type 4: Trojan/Trojan-Go)：dokodemo拆分入站
 #   in-redir(tcp,redirect)+in-tproxy(udp,tproxy带sockopt.tproxy)，见xray_in_redir/xray_in_tproxy，
 #   祖传"单inbound tcp,udp缺sockopt.tproxy导致UDP黑洞"已从结构上消除。
-# naive/hysteria2/anytls没有透明UDP监听器，自动降级纯TCP，境外QUIC由filter guard拦截促TCP回退（其余境外UDP直连）。
-# 失败路径均fail-safe：内核无TPROXY/fwmark冲突由load_tproxy探测后降级mangle，guard兜底，不泄漏不黑洞。
+# naive/hysteria2/anytls 走到这里会降级纯TCP。
+# 【措辞要准】这是"本插件没给它们配透明UDP入站"，不是"这些核心没有UDP能力"：
+#   - hysteria2 是 QUIC 协议、UDP 中继本是其强项，create_hy2_json 目前只声明了
+#     tcpRedirect、没有任何 UDP 入站，所以才落到这里；
+#   - anytls 启动参数是 -nat 0.0.0.0:3333，该 nat 监听是否含 UDP 未经证实，
+#     未证实前不声称其无能力。
+# 不写成"核心无能力"是为了避免让用户误判成"得换协议"——真要支持是补配置的事。
+# 注意filter层兜底guard的适用范围：apply_forward_guard 首行就是 [ "$ss_basic_mode" == "2" ] || return 0，
+# 即"境外QUIC被拦截促TCP回退"只在【大陆白名单/游戏模式】成立；gfwlist/全局/回国模式下没有这道
+# guard，降级后境外UDP（含QUIC）就是明文直连——凡对用户描述此行为处一律要带上模式限定，不能含糊承诺。
+# 失败路径均fail-safe：内核无TPROXY/fwmark冲突由load_tproxy探测后降级mangle，不黑洞；
+# 是否"不泄漏"取决于主模式是否为2（见上），由 write_udp_runtime_state 按模式回写真实文案。
+# 运行时UDP状态追踪：档位在下面会被多处就地降级（节点核心能力、内核TPROXY可用性、fwmark/table冲突），
+# 且这些降级只改内存变量、不写dbus，于是Web端永远显示用户选的档位而不是实际生效的档位。
+# 这里先记下"用户请求值"与"降级原因"，由apply_nat_rules结尾统一回写 ss_runtime_udp_* 供状态面板显示。
+SS_UDP_REQ="$ss_basic_udp_sync"
+SS_UDP_DEGRADE=""
 udp_tproxy_supported="0"
+
+# ---- hy2「这份构建不认 udpTProxy」的结论必须落库 ----
+# start_hy2 的自愈分支发现构建不接受 udpTProxy 时，会用 jq 把该键从磁盘配置里【永久剥掉】，
+# 但结论本身原来只存在 shell 变量 HY2_UDP_UNSUPPORTED 里，进程一退就没了。
+# 于是下一次开机（wan-start 触发，WAN_ACTION 非空 → 第 3636 行跳过 create_hy2_json）：
+#   磁盘配置已无 udpTProxy → hysteria 一次就起来 → 自愈分支根本不执行 → 变量仍为空；
+#   而 dbus 里 ss_basic_hy2_udp 还是 1、ss_basic_udp_sync 还是 3
+#   → 下面判定"支持" → mangle=1 → load_nat 把 UDP/443 与 Game 端口的 hook 和
+#     TPROXY --on-port 3333 全套下发到一个【根本不监听 UDP/3333】的核心上。
+#   xt_TPROXY 查不到 socket 直接丢包：Game 端口 UDP 整段黑洞（这类流量没有 TCP 回退），
+#   QUIC 也要等浏览器超时才回落。这正是这套自愈逻辑本想避免的黑洞。
+# 用户手动点【应用】(非 wan-start) 视为"再试一次"：清掉结论重新探测，
+# 换成编入 TPROXY 支持的 hysteria 构建后无需手工干预即可恢复（代价是重试那次多等约9秒）。
+SS_WAN_TRIGGERED=`ps|grep /jffs/scripts/wan-start|grep -v grep`
+if [ -z "$SS_WAN_TRIGGERED" ];then
+	dbus remove ss_runtime_hy2_udp_unsupported >/dev/null 2>&1
+	ss_runtime_hy2_udp_unsupported=""
+fi
+HY2_UDP_UNSUPPORTED=""
+[ "$ss_runtime_hy2_udp_unsupported" == "1" ] && HY2_UDP_UNSUPPORTED=1
+
 case "$ss_basic_type" in
-	0|1|2|3) udp_tproxy_supported="1" ;;
-	4) case "$ss_basic_trojan_binary" in Trojan|Trojan-Go) udp_tproxy_supported="1" ;; esac ;;
+	0|1|3) udp_tproxy_supported="1" ;;
+	4) case "$ss_basic_trojan_binary" in
+	     Trojan|Trojan-Go) udp_tproxy_supported="1" ;;
+	     # Hysteria2：透明UDP入站由【Hysteria2设定】里的 UDP 开关显式启用。
+	     # 默认不开的理由是性能而非能力 —— hy2 是 QUIC 协议、加解密开销远大于 TCP 类协议，
+	     # 把 UDP 也压到同一条隧道上，弱路由器更容易先撞 CPU 上限。
+	     # 开关打开后 create_hy2_json 按 mangle 条件写入 udpTProxy（键名取自官方
+	     # Full Client Config 文档：udpTProxy，不是 tproxyUDP）。
+	     # 第二个条件读的是上面落库的结论：构建已被证实不认 udpTProxy 时不再声称支持，
+	     # 否则开机路径会把 UDP 规则下发到一个不监听 UDP/3333 的核心上。
+	     Hysteria2) [ "$ss_basic_hy2_udp" == "1" ] && [ "$HY2_UDP_UNSUPPORTED" != "1" ] && udp_tproxy_supported="1" ;;
+	   esac ;;
 esac
+
+# ---- 传输层能不能承载 UDP：只看核心类型是不够的 ----
+# 上面那个 case 判的是"核心有没有透明UDP入站监听器"，但那只是本机这一侧。
+# 还有第二个前提：UDP 能不能真的穿过隧道到服务端。ss-libev 系（type 0/1）挂 SIP003 插件时
+# 这个前提不成立：
+#   ss_arg() 在 ss_basic_ss_v2ray_plugin==2 时拼出 --plugin obfs-local（simple-obfs），
+#   而 start_ss_redir 是 `$BIN -c $CONFIG_FILE $ARG_V2RAY_PLUGIN -u ...`。
+#   simple-obfs 是【纯 TCP】的 SIP003 插件，没有 UDP 通路；ss-redir 的 -u 会把 UDP
+#   直接发到 server:port、完全绕过插件。服务端那个端口在等 obfs 包装过的流量
+#   （或者那根本是 CDN 边缘），于是 UDP 进黑洞。
+#
+# 后果分两档看，这正好解释了"仅代理QUIC 实测通过、QUIC+Game 却会掉线"：
+#   仅代理QUIC(档2)：QUIC 被黑洞 -> 浏览器拿不到 UDP 应答 -> 自动回退 TCP -> 经插件正常走。
+#                    用户看到网页能开、源IP也藏住了，【黑洞是隐形的】。
+#                    也就是说"档2 实测通过"并不能证明该节点能承载 UDP。
+#   QUIC+Game(档3)：Game 端口的 UDP 没有 TCP 回退路径，游戏直接不通。
+#                   若节点是 CDN/CF 前置的，还在往 CDN 边缘打它不认识的 UDP，
+#                   被限流/封禁后连 TCP 一起失败 —— 表现就是"换完节点一会就掉线"。
+#
+# 所以这里把它并入能力判定并给独立的降级原因，让状态栏能说清到底卡在哪一层。
+if [ "$udp_tproxy_supported" == "1" ] && { [ "$ss_basic_type" == "0" ] || [ "$ss_basic_type" == "1" ]; }    && [ "$ss_basic_ss_v2ray_plugin" == "2" ] && [ -n "$ss_basic_ss_v2ray_plugin_opts" ]; then
+	udp_tproxy_supported="0"
+	SS_UDP_PLUGIN_BLOCK=1
+fi
+
 if [ "$udp_tproxy_supported" != "1" ]; then
 	if [ "$ss_basic_udp_sync" == "1" ] || [ "$ss_basic_udp_sync" == "2" ] || [ "$ss_basic_udp_sync" == "3" ] || [ -n "$game_on" ] || [ "$ss_basic_mode" == "3" ]; then
-		echo_date "当前节点核心(naive/hysteria2/anytls等)无透明UDP入站能力，UDP同步/游戏UDP无法透明代理，已降级纯TCP（境外QUIC由filter层拦截促TCP回退，其余境外UDP直连）。"
+	  # Hysteria2 单独说：它不是"插件没配"，而是"开关没开"——原因和处置都不同。
+	  if [ "$ss_basic_type" == "4" ] && [ "$ss_basic_trojan_binary" == "Hysteria2" ]; then
+		if [ "$HY2_UDP_UNSUPPORTED" == "1" ]; then
+			# 开关是开着的，卡在构建能力上 —— 归因与处置都和"没开开关"不同，不能混为一谈
+			echo_date "当前 hysteria 构建此前已被证实不接受 udpTProxy（透明UDP入站），本次沿用该结论，只做TCP透明代理。"
+			echo_date "要恢复UDP：换一个编入TPROXY支持的 hysteria 构建后手动点一次【应用】即会重新探测；"
+			echo_date "若不打算换，建议把【Hysteria2设定】里的 UDP 开关关掉，免得每次都白试。"
+			SS_UDP_DEGRADE="hy2_udp_unsupported"
+		else
+			echo_date "当前是 Hysteria2 节点，但【Hysteria2设定】里的 UDP 开关未启用，本次只做TCP透明代理。"
+			echo_date "要让「同步UDP与TCP」在该节点生效，请打开那个 UDP 开关。注意 hy2 是QUIC协议、加解密开销大，"
+			echo_date "开启后 UDP 也压在同一条隧道上，弱路由器会更早撞到CPU上限，按需开启。"
+			SS_UDP_DEGRADE="hy2_udp_off"
+		fi
+	  else
+		# 兜底话术必须随主模式变化：filter层guard只在主模式2建链，别的模式下没有任何QUIC拦截。
+		if [ "$ss_basic_mode" == "2" ]; then
+			echo_date "本插件未为当前节点类型(naive/hysteria2/anytls)配置透明UDP入站，UDP同步/游戏UDP无法透明代理，已降级纯TCP（境外QUIC由filter层拦截促TCP回退，其余境外UDP直连）。"
+		else
+			echo_date "本插件未为当前节点类型(naive/hysteria2/anytls)配置透明UDP入站，UDP同步/游戏UDP无法透明代理，已降级纯TCP（当前主模式没有filter层兜底，境外UDP含QUIC一律明文直连）。"
+		fi
+		SS_UDP_DEGRADE="node"
+		if [ "$SS_UDP_PLUGIN_BLOCK" == "1" ];then
+			echo_date "！！！更正上一行的归因：本节点核心(ss-redir)本身是有透明UDP能力的，卡在【传输层】——"
+			echo_date "！！！当前启用了 SIP003 插件 simple-obfs，它是纯TCP插件没有UDP通路，"
+			echo_date "！！！而 ss-redir 的 -u 会把 UDP 直接发往 server:port 绕过插件，服务端不认这种流量。"
+			echo_date "！！！若该节点是 CDN/CF 前置的，持续发送不被识别的 UDP 还可能招致限流，进而连 TCP 一起不稳。"
+			echo_date "！！！要用 Game 端口代理，请改用不依赖 SIP003 插件的节点（如 Xray 的 VLESS/VMess，UDP 在流内隧道化）。"
+			SS_UDP_DEGRADE="plugin"
+		fi
+	  fi
 	fi
 	ss_basic_udp_sync="0"
 	mangle=""
+fi
+
+# SSR(type 1) 的 obfs 是协议内置的，部分 obfs（如 tls1.2_ticket_auth）同样是 TCP 语义，
+# 服务端是否接受 UDP 取决于其实现，本地无法可靠判定 —— 只告警不强制降级，避免过度限制。
+if [ "$ss_basic_type" == "1" ] && [ -n "$ss_basic_rss_obfs" ] && [ "$ss_basic_rss_obfs" != "plain" ]    && { [ "$ss_basic_udp_sync" == "3" ] || [ -n "$game_on" ] || [ "$ss_basic_mode" == "3" ]; }; then
+	echo_date "提示：SSR节点当前 obfs 为【$ss_basic_rss_obfs】，部分 obfs 是TCP语义、服务端可能不接受UDP。"
+	echo_date "提示：Game端口若出现丢包或一会儿掉线，请先把 obfs 换成 plain 或改用其它协议节点验证。"
 fi
 
 get_lan_cidr(){
@@ -1190,13 +1308,29 @@ create_v2ray_json(){
 		[ -z "$(dbus get ss_basic_v2ray_mux_concurrency)" ] && local ss_basic_v2ray_mux_concurrency=8
 		[ "$ss_basic_v2ray_network_security" == "none" ] && local ss_basic_v2ray_network_security=""
 
+		# 【多域名 host 的两类消费点，形态不同，不能共用一个值】
+		# 下面 "incase multi-domain input" 那段把逗号改写成 `", "`，是给【数组】位置准备的：
+		#   tcp-http 的 headers.Host = ["$host"]   -> ["a", "b"]   正确
+		#   h2 的 host = get_h2_host -> ["$1"]     -> ["a", "b"]   正确
+		# 但还有两个【标量】位置也在用同一个变量，拿到改写后的值就会生成非法 JSON：
+		#   serverName = "$tlshost"                -> "a", "b"     <- 多出一个没有键的裸值
+		#   ws 的 headers.Host = get_ws_header     -> {"Host": "a", "b"}
+		# 触发条件：ws（或 h2）+ TLS + host 填了多个域名 + 未单独填 SNI ——
+		# 此时 tlshost 由 host 派生，拿到的正是改写后的值。
+		# 结果 xray -test 不过、start_xray_core 失败 -> close_in_five 把整个插件关停，
+		# 而日志只报一句配置错误，用户很难联想到是"host 填了两个域名"。
+		# 标量位置只能取第一个域名：TLS 握手只能带一个 SNI，
+		# ws 的 headers.Host 在 xray 里也是 string 而不是数组。
+		# 必须在改写【之前】取，否则取到的是已经带了引号的碎片。
+		local v2ray_host_first=$(echo "$ss_basic_v2ray_network_host" | sed 's/,.*//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
 		# incase multi-domain input
 		if [ "$(echo $ss_basic_v2ray_network_host | grep ",")" ]; then
 			ss_basic_v2ray_network_host=$(echo $ss_basic_v2ray_network_host | sed 's/,/", "/g')
 		fi
 
 		if [ "$ss_basic_v2ray_network" == "ws" -o "$ss_basic_v2ray_network" == "h2" ] && [ -z "$ss_basic_v2ray_network_tlshost" ] && [ -n "$ss_basic_v2ray_network_host" ]; then
-		 	local ss_basic_v2ray_network_tlshost="$ss_basic_v2ray_network_host"
+		 	local ss_basic_v2ray_network_tlshost="$v2ray_host_first"
 		fi
 
 		case "$ss_basic_v2ray_network_security" in
@@ -1283,7 +1417,7 @@ create_v2ray_json(){
 				\"connectionReuse\": true,
 				\"fingerprint\": $(get_fingerprint $ss_basic_fingerprint),
 				\"path\": $(get_path $ss_basic_v2ray_network_path),
-				\"headers\": $(get_ws_header $ss_basic_v2ray_network_host)
+				\"headers\": $(get_ws_header "$v2ray_host_first")
 				}"
 			;;
 		h2)
@@ -1876,48 +2010,319 @@ create_ss2022_json(){
 }
 
 
-create_hy2_json(){
-	rm -f "$HY2_CONFIG_FILE" 
-	if  [ "$ss_basic_type" == "4" ] && [ "$ss_basic_trojan_binary" == "Hysteria2" ]; then
-	
-		echo_date 生成Hysteria2配置文件...
-		 #HY2
+hy2_validate_switch(){
+	case "$2" in
+		0|1) return 0 ;;
+		*) echo_date "Hysteria2 配置校验失败：$1 开关只能是 0 或 1。"; return 1 ;;
+	esac
+}
 
-	cat >"$HY2_CONFIG_FILE" <<-EOF		
-			{
-				"server": "$(dbus get ss_basic_server):$ss_basic_port",
-				"auth": "${ss_basic_password}",
-				"tls": {
-					"sni": "$ss_basic_trojan_sni",
-					"insecure": $(get_function_switch $ss_basic_allowinsecure)
-				},
-				"fastOpen": true,
-				"lazy": true,
-				"socks5": {
-					"listen": "127.0.0.1:23456"
-				},
-				"tcpRedirect": {
-					"listen": "0.0.0.0:3333"
+hy2_validate_ipv4(){
+	awk -v value="$1" 'BEGIN {
+		if (split(value, octets, ".") != 4) exit 1
+		for (i = 1; i <= 4; i++) {
+			if (octets[i] !~ /^[0-9]+$/ || (length(octets[i]) > 1 && substr(octets[i], 1, 1) == "0") || octets[i] > 255) exit 1
+		}
+	}'
+}
+
+hy2_validate_server_host(){
+	local host="$1"
+	local ipv6=""
+	local ipv4_tail=""
+	local domain=""
+	local old_ifs="$IFS"
+	local label=""
+	[ -n "$host" ] && [ ${#host} -le 254 ] || return 1
+	case "$host" in
+		\[*\])
+			ipv6="${host#\[}"
+			ipv6="${ipv6%\]}"
+			case "$ipv6" in
+				''|*[!0-9A-Fa-f:.]*|*:::*) return 1 ;;
+			esac
+			case "$ipv6" in
+				*.*)
+					ipv4_tail="${ipv6##*:}"
+					[ "$ipv4_tail" != "$ipv6" ] && hy2_validate_ipv4 "$ipv4_tail" || return 1
+					ipv6="${ipv6%:*}:0:0"
+					;;
+			esac
+			awk -v value="$ipv6" 'BEGIN {
+				if (index(value, ":") == 0) exit 1
+				rest = value
+				compressed = 0
+				while ((pos = index(rest, "::")) > 0) {
+					compressed++
+					rest = substr(rest, pos + 2)
 				}
-			}
-		EOF
+				if (compressed > 1) exit 1
+				n = split(value, parts, ":")
+				groups = 0
+				for (i = 1; i <= n; i++) {
+					if (length(parts[i]) == 0) continue
+					if (length(parts[i]) > 4 || parts[i] !~ /^[0-9A-Fa-f]+$/) exit 1
+					groups++
+				}
+				if (compressed == 1) exit !(groups < 8)
+				exit !(groups == 8)
+			}' || return 1
+			;;
+		*'['*|*']'*|*:*) return 1 ;;
+		*)
+			domain="$host"
+			case "$domain" in
+				*.) domain="${domain%.}" ;;
+			esac
+			[ -n "$domain" ] && [ ${#domain} -le 253 ] || return 1
+			case "$domain" in
+				*[!0-9.]*)
+					case "$domain" in
+						.*|*.|*..*|*[!A-Za-z0-9.-]*) return 1 ;;
+					esac
+					IFS='.'
+					set -- $domain
+					IFS="$old_ifs"
+					for label in "$@"; do
+						[ ${#label} -le 63 ] || return 1
+						case "$label" in
+							''|-*|*-|*[!A-Za-z0-9-]*) return 1 ;;
+						esac
+					done
+					;;
+				*) hy2_validate_ipv4 "$domain" || return 1 ;;
+			esac
+			;;
+	esac
+	return 0
+}
 
-		if [ -n "$ss_basic_hy2_global_json" ]; then
-			echo "$ss_basic_hy2_global_json" | base64_decode >"${HY2_GLOBAL_CONFIG_FILE}.tmp"
-			if jq -e 'type == "object" and length > 0 and (length == ([keys_unsorted[] | select(. == "obfs" or . == "congestion" or . == "bandwidth")] | length))' "${HY2_GLOBAL_CONFIG_FILE}.tmp" >/dev/null 2>&1; then
-				mv "${HY2_GLOBAL_CONFIG_FILE}.tmp" "$HY2_GLOBAL_CONFIG_FILE"
-				jq -s '.[0] * .[1]' "$HY2_CONFIG_FILE" "$HY2_GLOBAL_CONFIG_FILE" >"${HY2_CONFIG_FILE}.tmp" && mv "${HY2_CONFIG_FILE}.tmp" "$HY2_CONFIG_FILE"
-				echo_date Hysteria2 全局设定合并成功
-			else
-				echo_date Hysteria2 全局设定格式错误，已跳过
-			fi
-			rm -f "$HY2_GLOBAL_CONFIG_FILE" "${HY2_GLOBAL_CONFIG_FILE}.tmp" "${HY2_CONFIG_FILE}.tmp"
-		else
-			rm -f "$HY2_GLOBAL_CONFIG_FILE" "${HY2_GLOBAL_CONFIG_FILE}.tmp" "${HY2_CONFIG_FILE}.tmp"
+hy2_validate_port_spec(){
+	local label="$1"
+	local port_spec="$2"
+	local old_ifs="$IFS"
+	local item=""
+	local start=""
+	local end=""
+	case "$port_spec" in
+		''|*[!0-9,-]*|,*|*,|*,,*) echo_date "Hysteria2 配置校验失败：$label 必须是单端口或逗号分隔的端口段。"; return 1 ;;
+	esac
+	IFS=','
+	set -- $port_spec
+	IFS="$old_ifs"
+	for item in "$@"; do
+		case "$item" in
+			''|*[!0-9-]*|*-*-*|-*|*-) echo_date "Hysteria2 配置校验失败：$label 端口段格式不合法。"; return 1 ;;
+			*-*) start="${item%%-*}"; end="${item#*-}" ;;
+			*) start="$item"; end="$item" ;;
+		esac
+		if ! awk -v start="$start" -v end="$end" 'BEGIN { exit !(start >= 1 && start <= 65535 && end >= start && end <= 65535) }'; then
+			echo_date "Hysteria2 配置校验失败：$label 的所有端点必须递增且位于 1-65535。"
+			return 1
+		fi
+	done
+	return 0
+}
+
+hy2_core_version(){
+	/koolshare/bin/hysteria version 2>&1 | awk '/Version:/ {gsub(/^v/, "", $2); print $2; exit}'
+}
+
+hy2_validate_global_json(){
+	local config_file="$1"
+	local core_version=""
+	if ! jq -e '
+		type == "object" and length > 0 and
+		(length == ([keys[] | select(. == "obfs" or . == "congestion" or . == "bandwidth")] | length)) and
+		((has("obfs") | not) or (.obfs |
+			type == "object" and
+			(if .type == "salamander" then
+				length == 2 and
+				(length == ([keys[] | select(. == "type" or . == "salamander")] | length)) and
+				(.salamander | type == "object" and length == 1 and (.password | type == "string" and (@base64 | length) >= 8))
+			elif .type == "gecko" then
+				(length == ([keys[] | select(. == "type" or . == "gecko")] | length)) and
+				(.gecko |
+					type == "object" and
+					(length == ([keys[] | select(. == "password" or . == "minPacketSize" or . == "maxPacketSize")] | length)) and
+					(.password | type == "string" and (@base64 | length) >= 8) and
+					((has("minPacketSize") | not) or ((.minPacketSize | type) == "number" and (.minPacketSize % 1) == 0 and .minPacketSize > 0)) and
+					((has("maxPacketSize") | not) or ((.maxPacketSize | type) == "number" and (.maxPacketSize % 1) == 0 and .maxPacketSize > 0)) and
+					((.minPacketSize // 512) <= (.maxPacketSize // 1200)) and
+					((.maxPacketSize // 1200) <= 2048))
+			else false end))) and
+		((has("congestion") | not) or (.congestion |
+			type == "object" and
+			(if .type == "bbr" then
+				(length == ([keys[] | select(. == "type" or . == "bbrProfile")] | length)) and
+				((has("bbrProfile") | not) or (.bbrProfile == "standard" or .bbrProfile == "conservative" or .bbrProfile == "aggressive"))
+			elif .type == "reno" then
+				length == 1 and (length == ([keys[] | select(. == "type")] | length))
+			else false end))) and
+		((has("bandwidth") | not) or (.bandwidth |
+			type == "object" and length > 0 and
+			(length == ([keys[] | select(. == "up" or . == "down")] | length)) and
+			((has("up") | not) or (.up | type) == "string") and
+			((has("down") | not) or (.down | type) == "string")))
+	' "$config_file" >/dev/null 2>&1; then
+		echo_date "Hysteria2 设定校验失败：混淆、拥塞控制或带宽参数不合法。"
+		return 1
+	fi
+	if ! jq -r '.bandwidth.up // empty, .bandwidth.down // empty' "$config_file" 2>/dev/null |
+		awk '/^[1-9][0-9]*[[:space:]]+mbps$/ { next } { exit 1 }'; then
+		echo_date "Hysteria2 设定校验失败：带宽必须使用正整数加 mbps，例如 100 mbps。"
+		return 1
+	fi
+
+	if jq -e 'has("congestion")' "$config_file" >/dev/null 2>&1; then
+		core_version=`hy2_core_version`
+		if [ -z "$core_version" ] || [ "`versioncmp "$core_version" 2.8.1`" == "1" ]; then
+			echo_date "Hysteria2 设定校验失败：congestion 需要 Hysteria v2.8.1+，当前版本为 ${core_version:-未知}。"
+			return 1
+		fi
+	fi
+	if jq -e '.obfs.type == "gecko"' "$config_file" >/dev/null 2>&1; then
+		[ -n "$core_version" ] || core_version=`hy2_core_version`
+		if [ -z "$core_version" ] || [ "`versioncmp "$core_version" 2.9.2`" == "1" ]; then
+			echo_date "Hysteria2 设定校验失败：gecko 需要 Hysteria v2.9.2+，当前版本为 ${core_version:-未知}。"
+			return 1
+		fi
+	fi
+	return 0
+}
+
+hy2_validate_final_json(){
+	local config_file="$1"
+	local global_check="${config_file}.global-check"
+	if ! jq -e '
+		type == "object" and
+		(length == ([keys[] | select(. == "server" or . == "auth" or . == "tls" or . == "fastOpen" or . == "lazy" or . == "socks5" or . == "tcpRedirect" or . == "udpTProxy" or . == "obfs" or . == "congestion" or . == "bandwidth")] | length)) and
+		(.server | type == "string" and length > 0) and
+		(.auth | type == "string" and length > 0) and
+		(.tls | type == "object" and length == 2 and (.sni | type == "string") and (.insecure | type == "boolean")) and
+		(.fastOpen | type == "boolean") and (.lazy | type == "boolean") and
+		(.socks5 | type == "object" and length == 1 and (.listen | type == "string" and length > 0)) and
+		(.tcpRedirect | type == "object" and length == 1 and (.listen | type == "string" and length > 0)) and
+		((has("udpTProxy") | not) or (.udpTProxy |
+			type == "object" and length == 2 and
+			(.listen | type == "string" and length > 0) and
+			(.timeout | type == "string" and . == "20s")))
+	' "$config_file" >/dev/null 2>&1; then
+		rm -f "$global_check"
+		return 1
+	fi
+	if ! jq 'del(.server, .auth, .tls, .fastOpen, .lazy, .socks5, .tcpRedirect, .udpTProxy)' "$config_file" >"$global_check" 2>/dev/null; then
+		rm -f "$global_check"
+		return 1
+	fi
+	if jq -e 'length > 0' "$global_check" >/dev/null 2>&1 && ! hy2_validate_global_json "$global_check"; then
+		rm -f "$global_check"
+		return 1
+	fi
+	rm -f "$global_check"
+	return 0
+}
+
+create_hy2_json(){
+	local config_base="${HY2_CONFIG_FILE}.base"
+	local config_tmp="${HY2_CONFIG_FILE}.tmp"
+	local server_host=""
+	local udp_enabled="false"
+	local insecure="false"
+	local fast_open="false"
+	local lazy="false"
+	rm -f "$config_base" "$config_tmp" "$HY2_GLOBAL_CONFIG_FILE" "${HY2_GLOBAL_CONFIG_FILE}.tmp"
+	if [ "$ss_basic_type" == "4" ] && [ "$ss_basic_trojan_binary" == "Hysteria2" ]; then
+		[ -n "$ss_basic_hy2_udp" ] || ss_basic_hy2_udp=0
+		[ -n "$ss_basic_hy2_fast_open" ] || ss_basic_hy2_fast_open=1
+		[ -n "$ss_basic_hy2_lazy" ] || ss_basic_hy2_lazy=1
+		[ -n "$ss_basic_allowinsecure" ] || ss_basic_allowinsecure=0
+		hy2_validate_switch "UDP" "$ss_basic_hy2_udp" || return 1
+		hy2_validate_switch "fastOpen" "$ss_basic_hy2_fast_open" || return 1
+		hy2_validate_switch "lazy" "$ss_basic_hy2_lazy" || return 1
+		hy2_validate_switch "TLS insecure" "$ss_basic_allowinsecure" || return 1
+
+		server_host=`dbus get ss_basic_server`
+		if [ -z "$server_host" ] || [ -z "$ss_basic_password" ]; then
+			echo_date "Hysteria2 配置校验失败：服务器地址和认证密码不能为空。"
+			return 1
+		fi
+		if ! hy2_validate_server_host "$server_host"; then
+			echo_date "Hysteria2 配置校验失败：服务器地址必须是合法域名、IPv4 或方括号 IPv6。"
+			return 1
+		fi
+		hy2_validate_port_spec "服务器端口" "$ss_basic_port" || return 1
+
+		insecure=`get_function_switch "$ss_basic_allowinsecure"`
+		fast_open=`get_function_switch "$ss_basic_hy2_fast_open"`
+		lazy=`get_function_switch "$ss_basic_hy2_lazy"`
+		if [ "$ss_basic_hy2_udp" == "1" ] && [ -n "$mangle" ] && [ "$HY2_UDP_UNSUPPORTED" != "1" ]; then
+			udp_enabled="true"
 		fi
 
+		echo_date 生成Hysteria2配置文件...
+		if ! jq -n \
+			--arg server "${server_host}:$ss_basic_port" \
+			--arg auth "$ss_basic_password" \
+			--arg sni "$ss_basic_trojan_sni" \
+			--argjson insecure "$insecure" \
+			--argjson fast_open "$fast_open" \
+			--argjson lazy "$lazy" \
+			--argjson udp_enabled "$udp_enabled" '
+			{
+				server: $server,
+				auth: $auth,
+				tls: {sni: $sni, insecure: $insecure},
+				fastOpen: $fast_open,
+				lazy: $lazy,
+				socks5: {listen: "127.0.0.1:23456"},
+				tcpRedirect: {listen: "0.0.0.0:3333"}
+			} + (if $udp_enabled then {udpTProxy: {listen: "0.0.0.0:3333", timeout: "20s"}} else {} end)
+		' >"$config_base"; then
+			echo_date "Hysteria2 配置生成失败。"
+			rm -f "$config_base" "$config_tmp"
+			return 1
+		fi
+
+		if [ -n "$ss_basic_hy2_global_json" ]; then
+			printf '%s' "$ss_basic_hy2_global_json" | base64_decode >"${HY2_GLOBAL_CONFIG_FILE}.tmp"
+			if ! hy2_validate_global_json "${HY2_GLOBAL_CONFIG_FILE}.tmp"; then
+				rm -f "$config_base" "$config_tmp" "$HY2_GLOBAL_CONFIG_FILE" "${HY2_GLOBAL_CONFIG_FILE}.tmp"
+				return 1
+			fi
+			if ! mv "${HY2_GLOBAL_CONFIG_FILE}.tmp" "$HY2_GLOBAL_CONFIG_FILE"; then
+				echo_date "Hysteria2 设定临时文件写入失败。"
+				rm -f "$config_base" "$config_tmp" "$HY2_GLOBAL_CONFIG_FILE" "${HY2_GLOBAL_CONFIG_FILE}.tmp"
+				return 1
+			fi
+			if ! jq -s '.[0] * .[1]' "$config_base" "$HY2_GLOBAL_CONFIG_FILE" >"$config_tmp"; then
+				echo_date "Hysteria2 设定合并失败。"
+				rm -f "$config_base" "$config_tmp" "$HY2_GLOBAL_CONFIG_FILE"
+				return 1
+			fi
+			echo_date Hysteria2设定合并成功
+		else
+			if ! mv "$config_base" "$config_tmp"; then
+				echo_date "Hysteria2 基础配置临时文件写入失败。"
+				rm -f "$config_base" "$config_tmp"
+				return 1
+			fi
+		fi
+
+		if ! hy2_validate_final_json "$config_tmp"; then
+			echo_date "Hysteria2 最终配置校验失败，已拒绝应用。"
+			rm -f "$config_base" "$config_tmp" "$HY2_GLOBAL_CONFIG_FILE" "${HY2_GLOBAL_CONFIG_FILE}.tmp"
+			return 1
+		fi
+		if ! mv "$config_tmp" "$HY2_CONFIG_FILE"; then
+			echo_date "Hysteria2 最终配置写入失败，已拒绝应用。"
+			rm -f "$config_base" "$config_tmp" "$HY2_GLOBAL_CONFIG_FILE" "${HY2_GLOBAL_CONFIG_FILE}.tmp"
+			return 1
+		fi
+		rm -f "$config_base" "$HY2_GLOBAL_CONFIG_FILE" "${HY2_GLOBAL_CONFIG_FILE}.tmp"
 		echo_date Hysteria2 配置文件写入成功到 "$HY2_CONFIG_FILE"
 	fi
+	return 0
 }
 
 start_xray_core() {
@@ -2005,23 +2410,61 @@ start_naiveproxy() {
 	echo_date NaiveProxy启动成功，pid：$naivePID
 }
 
-start_hy2() {
-	# Hysteria2 start
+# 拉起 hysteria 并等进程出现；起不来返回 1（不在这里做善后）
+hy2_spawn() {
 	export QUIC_GO_DISABLE_ECN=true
 	cd /koolshare/bin
 	hysteria -c $HY2_CONFIG_FILE -l error --disable-update-check  >/dev/null 2>&1 &
-	local hy2PID
+	local hy2PID=""
 	local i=10
 	until [ -n "$hy2PID" ]; do
 		i=$(($i - 1))
 		hy2PID=$(pidof hysteria)
-		if [ "$i" -lt 1 ]; then
-			echo_date "Hysteria2进程启动失败！"
-			close_in_five
-		fi
+		[ -n "$hy2PID" ] && break
+		[ "$i" -lt 1 ] && return 1
 		sleep 1
 	done
 	echo_date Hysteria2启动成功，pid：$hy2PID
+	return 0
+}
+
+start_hy2() {
+	if ! hy2_validate_final_json "$HY2_CONFIG_FILE"; then
+		echo_date "Hysteria2 最终配置校验失败，已阻止启动。"
+		close_in_five
+	fi
+	hy2_spawn && return 0
+
+	# 起不来。若本次配置带了 udpTProxy，先怀疑这份构建不认它（TPROXY 是 Linux-only 特性，
+	# 取决于编译），剥掉该键重试一次。
+	# 这道保险的意义：打开 UDP 开关【绝不该把整个插件搞停】——
+	# 原来这里是直接 close_in_five，那会连 TCP 代理一起关掉。
+	if grep -q '"udpTProxy"' "$HY2_CONFIG_FILE" 2>/dev/null;then
+		echo_date "！！！Hysteria2 启动失败，且本次配置声明了 udpTProxy（透明UDP入站）。"
+		echo_date "！！！先剥掉该键重试，以判断这份 hysteria 构建是否支持它。"
+		if ! jq 'del(.udpTProxy)' "$HY2_CONFIG_FILE" > "${HY2_CONFIG_FILE}.tmp" 2>/dev/null || ! mv "${HY2_CONFIG_FILE}.tmp" "$HY2_CONFIG_FILE";then
+			echo_date "！！！Hysteria2 UDP 回退配置写入失败，已停止启动，避免继续使用旧配置。"
+			rm -f "${HY2_CONFIG_FILE}.tmp"
+			close_in_five
+		fi
+		if hy2_spawn;then
+			echo_date "！！！确认：这份 hysteria 构建不接受 udpTProxy，已回退为纯TCP透明代理。"
+			echo_date "！！！TCP 代理不受影响；本次 UDP（含QUIC与Game端口）不走代理。"
+			echo_date "！！！请把【Hysteria2设定】里的 UDP 开关关掉，或换一个编入TPROXY支持的构建。"
+			HY2_UDP_UNSUPPORTED=1
+			# 必须落库：jq 上面已经把 udpTProxy 从磁盘配置里永久剥掉了，而开机路径
+			# (WAN_ACTION 非空) 不重新生成配置。结论只留在内存里的话，下次开机会判定"支持"
+			# 并把 UDP 规则下发到一个不监听 UDP/3333 的核心上 —— 正是这段自愈想避免的黑洞。
+			# 清除时机在脚本顶部：用户手动点【应用】即清掉重新探测。
+			dbus set ss_runtime_hy2_udp_unsupported=1
+			SS_UDP_DEGRADE="hy2_udp_unsupported"
+			ss_basic_udp_sync="0"
+			mangle=""
+			return 0
+		fi
+	fi
+	echo_date "Hysteria2进程启动失败！"
+	close_in_five
 }
 
 start_anytls(){
@@ -2083,6 +2526,11 @@ write_cron_job(){
 		dbus remove ss_basic_node_update_day >/dev/null 2>&1
 		dbus remove ss_basic_node_update_hr >/dev/null 2>&1
 	fi
+	# UDP代理状态探测：主界面状态栏第4行的数据源。apply 收尾已经跑过一次，这里加个低频
+	# 定时刷新，让"链路就绪→已有流量"以及运行中出现的异常（别的组件抢了fwmark/table310、
+	# 代理核心崩了不再监听UDP/3333）能在界面上体现出来，而不是一直停在启动瞬间的快照。
+	sed -i '/ssudpstat/d' /var/spool/cron/crontabs/* >/dev/null 2>&1
+	cru a ssudpstat "*/5 * * * * /bin/sh /koolshare/ss/cru/udp.sh"
 }
 
 kill_cron_job(){
@@ -2093,6 +2541,10 @@ kill_cron_job(){
 	if [ -n "`cru l|grep ssnodeupdate`" ];then
 		echo_date 删除节点定时订阅任务...
 		sed -i '/ssnodeupdate/d' /var/spool/cron/crontabs/* >/dev/null 2>&1
+	fi
+	if [ -n "`cru l|grep ssudpstat`" ];then
+		echo_date 删除UDP代理状态探测任务...
+		sed -i '/ssudpstat/d' /var/spool/cron/crontabs/* >/dev/null 2>&1
 	fi
 }
 #--------------------------------------nat part begin------------------------------------------------
@@ -2151,6 +2603,9 @@ flush_nat(){
 	
 	iptables -t mangle -F SHADOWSOCKS >/dev/null 2>&1 && iptables -t mangle -X SHADOWSOCKS >/dev/null 2>&1
 	iptables -t mangle -F SS_TPROXY_TEST >/dev/null 2>&1 && iptables -t mangle -X SS_TPROXY_TEST >/dev/null 2>&1
+	# SHADOWSOCKS_QUIC：本版本已不再创建（"仅QUIC"改成用 --dport 443 直接 hook 进 SHADOWSOCKS，
+	# 不再单独建链）。这里【只保留清理】，用于把早期版本残留在路由器上的旧链收干净，
+	# 不要因为"代码里没人建它"就删掉这行，否则升级上来的用户会留一条孤链。
 	iptables -t mangle -F SHADOWSOCKS_QUIC >/dev/null 2>&1 && iptables -t mangle -X SHADOWSOCKS_QUIC >/dev/null 2>&1
 	# 清理全部 mangle 模式 action 链（apply_nat_rules 现在预建全部 5 个）
 	for MCHAIN in SHADOWSOCKS_GFW SHADOWSOCKS_CHN SHADOWSOCKS_GAM SHADOWSOCKS_GLO SHADOWSOCKS_HOM; do
@@ -2181,7 +2636,8 @@ flush_nat(){
 	while iptables -t filter -D FORWARD -i br+ -j SHADOWSOCKS_FWD >/dev/null 2>&1; do :; done
 	iptables -t filter -F SHADOWSOCKS_FWD >/dev/null 2>&1
 	iptables -t filter -X SHADOWSOCKS_FWD >/dev/null 2>&1
-	# 清理 DNS 强制(all)：FORWARD 的 DoT/DoH 拦截链 + PREROUTING 的 53 改道 + ss_doh 集
+	# 清理 DNS 强制(all)：FORWARD 的 DoT/DoH 拦截链 + PREROUTING 的 53 改道
+	# （ss_doh 集不在这里销毁，见下方 ipset 段：必须等引用它的链都拆完）
 	clean_dns_force
 	if command -v ip6tables >/dev/null 2>&1; then
 		while ip6tables -t filter -D FORWARD -j SHADOWSOCKS_IPV6 >/dev/null 2>&1; do :; done
@@ -2194,6 +2650,9 @@ flush_nat(){
 	ipset -F black_list >/dev/null 2>&1 && ipset -X black_list >/dev/null 2>&1
 	ipset -F gfwlist >/dev/null 2>&1 && ipset -X gfwlist >/dev/null 2>&1
 	ipset -F router >/dev/null 2>&1 && ipset -X router >/dev/null 2>&1
+	# ss_doh 由 create_ipset 建、在此统一销毁（clean_dns_force 不再碰它）。
+	# 必须排在上面 clean_dns_force 与 nat/mangle SHADOWSOCKS 链拆除之后，否则集合仍被引用。
+	ipset -F ss_doh >/dev/null 2>&1 && ipset -X ss_doh >/dev/null 2>&1
 	#remove_redundant_rule
 	ip_rule_exist=`ip rule show | grep "lookup 310" | grep -c 310`
 	if [ -n "$ip_rule_exist" ];then
@@ -2228,24 +2687,20 @@ apply_ipv6_leak_guard(){
 	echo_date 大陆白名单模式：已阻止客户端IPv6直连外网\(保留内网IPv6\)，避免绕过IPv4透明代理。
 }
 
-# 大陆白名单模式下，NAT 透明代理只接管 TCP；QUIC(UDP/443) 与其余境外 UDP 会绕过 NAT
-# REDIRECT。在 filter/FORWARD 建一道兜底 guard：漏过本地接管的境外 TCP 与境外 QUIC 拦下，
-# 不依赖"浏览器丢弃 QUIC 后必然回退到受 NAT 接管的 TCP"这一假定。
-#   - TCP 用 REJECT tcp-reset：漏过 NAT REDIRECT 的境外直连被立即 reset，而非裸奔；
-#   - QUIC(UDP/443) 用 REJECT icmp-port-unreachable：让浏览器立即回退 TCP（比静默 DROP 快得多）；
-#   - 非 443 的境外 UDP（游戏、语音、NTP 等）不拦截，保持直连——这类流量没有 TCP 回退路径，
-#     拦了只会掐断游戏；需要强制走代理的目标请加黑名单（black_list 的 UDP 全端口仍拦截兜底）。
-#   - REJECT 目标不可用时回退 DROP。
-# 与 UDP 同步三档配合：关闭/仅QUIC 档未被 TPROXY 接管的境外 QUIC 由此拦截促回退，其余 UDP 直连；
-# 全量档境外 UDP 均被 TPROXY，此处只兜底漏网的 QUIC。
 # 校验并规范化Game端口表达式("27015,7777-7778")为iptables multiport格式("27015,7777:7778")。
 # 合法：逗号分隔，每段为单端口或"低-高"端口段，端口1-65535，段内低≤高，multiport总槽位≤15(端口段占2)。
 # 非法或为空时无输出且返回1——调用方必须以输出非空为下发规则的前提，语法检查不通过绝不加规则。
+#
+# 【禁止前导零】首位必须是1-9。原因是 libxtables 的 xtables_strtoul() 用 strtoul(s,&end,0)
+# 解析端口，base 0 会按 C 字面量规则识别前缀：
+#   "07777" -> 按八进制解析 = 4095，用户以为代理了 7777，实际代理了 4095（静默错端口）；
+#   "08"    -> strtoul 在 '8' 处停下，end 非空 -> iptables 直接报 invalid port，规则加不上。
+# 光靠 test -ge/-le 拦不住（shell 按十进制读，07777 会被判定为合法的 7777），必须在形状层就禁掉。
 validate_game_ports(){
 	local input=$(echo "$1" | sed 's/[[:space:]]//g')
 	[ -z "$input" ] && return 1
-	# 整体形状预检：只允许数字/短横线/逗号的合法组合，杜绝任何非法字符进入后续拼接
-	echo "$input" | grep -qE '^[0-9]{1,5}(-[0-9]{1,5})?(,[0-9]{1,5}(-[0-9]{1,5})?)*$' || return 1
+	# 整体形状预检：只允许数字/短横线/逗号的合法组合，且每段首位为1-9（杜绝前导零与八进制歧义）
+	echo "$input" | grep -qE '^[1-9][0-9]{0,4}(-[1-9][0-9]{0,4})?(,[1-9][0-9]{0,4}(-[1-9][0-9]{0,4})?)*$' || return 1
 	local out="" seg lo hi slots=0
 	local OLD_IFS="$IFS"
 	IFS=','
@@ -2270,6 +2725,37 @@ validate_game_ports(){
 	echo "${out#,}"
 }
 
+# 统计 Game 端口表达式实际覆盖多少个端口。
+# 存在的理由：槽位限制拦不住"宽端口段"—— 例如 1024-65535 只占 2 个槽位、
+# 每段端口值也都合法，校验会原样放过，但它的实际效果已经等同于「全量UDP」，
+# 而用户以为自己选的是低负载的「仅代理QUIC+Game」。这类写法不该直接拒绝
+# （确实有游戏用很宽的段），但必须把负载真相说出来。
+count_game_ports(){
+	local seg lo hi n=0
+	local OLD_IFS="$IFS"
+	IFS=','
+	for seg in $1; do
+		case "$seg" in
+			*:*) lo=${seg%:*}; hi=${seg#*:}; n=$((n + hi - lo + 1)) ;;
+			*)   n=$((n + 1)) ;;
+		esac
+	done
+	IFS="$OLD_IFS"
+	echo "$n"
+}
+
+# 大陆白名单模式下，NAT 透明代理只接管 TCP；QUIC(UDP/443) 与其余境外 UDP 会绕过 NAT
+# REDIRECT。在 filter/FORWARD 建一道兜底 guard：漏过本地接管的境外 TCP 与境外 QUIC 拦下，
+# 不依赖"浏览器丢弃 QUIC 后必然回退到受 NAT 接管的 TCP"这一假定。
+#   - TCP 用 REJECT tcp-reset：漏过 NAT REDIRECT 的境外直连被立即 reset，而非裸奔；
+#   - QUIC(UDP/443) 用 REJECT icmp-port-unreachable：让浏览器立即回退 TCP（比静默 DROP 快得多）；
+#   - 非 443 的境外 UDP（游戏、语音、NTP 等）不拦截，保持直连——这类流量没有 TCP 回退路径，
+#     拦了只会掐断游戏；需要强制走代理的目标请加黑名单（black_list 的 UDP 全端口仍拦截兜底）。
+#   - REJECT 目标不可用时回退 DROP。
+# 与 UDP 同步三档配合：关闭/仅QUIC 档未被 TPROXY 接管的境外 QUIC 由此拦截促回退，其余 UDP 直连；
+# 全量档境外 UDP 均被 TPROXY，此处只兜底漏网的 QUIC。
+# 注意本 guard 只在 ss_basic_mode==2 建链（见首行），gfwlist/全局/回国模式下不存在 ——
+# 凡对用户描述"境外QUIC会被拦截"处都必须带上这个模式限定。
 apply_forward_guard(){
 	[ "$ss_basic_mode" == "2" ] || return 0
 	# 安全护栏：chnroute 集为空/未就绪时（如规则下载失败），大陆 IP 会被误判为境外而
@@ -2280,10 +2766,65 @@ apply_forward_guard(){
 		return 0
 	fi
 
+	# ACL 感知门禁：本 guard 成立的前提是"境外 TCP 已被 nat 层 REDIRECT 全量接管"。凡在 nat 层
+	# 被判为直连(RETURN/未命中代理链)的包不会被改写目的地址，会正常进入 FORWARD 并撞上本链的
+	# 无差别 REJECT——即"用户明确要求直连的主机反而上不了外网"。因此：
+	#   1) 模式为 0(不通过代理)/1(gfwlist)/6(回国) 的 ACL 主机，其未命中代理的境外流量本就是直连，
+	#      按源地址整机豁免；
+	#   2) 【剩余主机】默认规则不由主模式接管(模式非 2/3/5)或限定了端口时，受影响的源无法枚举，
+	#      整体跳过 guard，宁可不拦也不误杀。
+	# 注：ss_acl_default_mode 在本函数之后会被 UDP 逻辑就地改写，故一律从 dbus 重读原值。
+	local fwd_exempt="" acl_list="" acl_i="" acl_m="" acl_ip="" def_mode="" def_port=""
+	acl_list=`dbus list ss_acl_mode_ 2>/dev/null | cut -d "=" -f 1 | cut -d "_" -f 4 | sort -n`
+	if [ -n "$acl_list" ]; then
+		for acl_i in $acl_list; do
+			acl_m=`dbus get ss_acl_mode_$acl_i`
+			[ "$acl_m" == "0" ] || [ "$acl_m" == "1" ] || [ "$acl_m" == "6" ] || continue
+			acl_ip=`dbus get ss_acl_ip_$acl_i`
+			if ! echo "$acl_ip" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'; then
+				echo_date "访问控制第${acl_i}条的IP【$acl_ip】无法识别，无法为其豁免filter层境外兜底guard，已跳过guard以免误拦直连主机。"
+				return 0
+			fi
+			fwd_exempt="$fwd_exempt $acl_ip"
+		done
+		def_mode=`dbus get ss_acl_default_mode`
+		def_port=`dbus get ss_acl_default_port`
+		if [ "$def_mode" != "2" ] && [ "$def_mode" != "3" ] && [ "$def_mode" != "5" ]; then
+			echo_date "访问控制中【剩余主机】的默认规则不由主模式接管，其境外流量为直连，已跳过filter层境外兜底guard以免误拦。"
+			return 0
+		fi
+		if [ -n "$def_port" ] && [ "$def_port" != "all" ]; then
+			echo_date "访问控制中【剩余主机】限定了端口【$def_port】，端口之外的境外流量为直连，已跳过filter层境外兜底guard以免误拦。"
+			return 0
+		fi
+	fi
+
 	iptables -t filter -N SHADOWSOCKS_FWD >/dev/null 2>&1
 	iptables -t filter -F SHADOWSOCKS_FWD >/dev/null 2>&1
-	# DNS(UDP/53) 交给既有 DNS 劫持逻辑，guard 不干预，避免改变现有 DNS 行为
+	# 直连型 ACL 主机整机豁免，必须排在所有 REJECT 之前。任一条写入失败即放弃整个 guard
+	# （此时链尚未挂到 FORWARD，直接销毁即可），绝不允许"guard 生效但豁免缺失"的半套状态。
+	for acl_ip in $fwd_exempt; do
+		if ! iptables -t filter -A SHADOWSOCKS_FWD -s "$acl_ip" -j RETURN >/dev/null 2>&1; then
+			echo_date "filter层境外兜底guard的ACL豁免规则写入失败【$acl_ip】，为避免误拦已放弃本次guard。"
+			iptables -t filter -F SHADOWSOCKS_FWD >/dev/null 2>&1
+			iptables -t filter -X SHADOWSOCKS_FWD >/dev/null 2>&1
+			return 0
+		fi
+	done
+	[ -n "$fwd_exempt" ] && echo_date "filter层境外兜底guard已豁免直连型ACL主机：$fwd_exempt"
+	# 已建立连接短路：本链挂在 filter/FORWARD 第 1 位，也就是排在固件自己的 ESTABLISHED
+	# ACCEPT 之前，于是【每一个】经路由器转发的 LAN 包都要走下面的 white_list/chnroute 两次
+	# 无条件 ipset 查询。ARMv7 上跑 BT/4K 时这笔开销是实打实的。
+	# 放过 ESTABLISHED 不削弱 guard：guard 的作用点是"新建的境外连接"——境外 TCP 的 SYN 与
+	# 境外 QUIC 的首包都是 NEW，照旧落到下面被 REJECT，压根形不成 ESTABLISHED 状态。
+	# 纯性能优化，两种 match 都不可用时直接跳过，不影响正确性。
+	iptables -t filter -A SHADOWSOCKS_FWD -m conntrack --ctstate ESTABLISHED -j RETURN >/dev/null 2>&1 || \
+		iptables -t filter -A SHADOWSOCKS_FWD -m state --state ESTABLISHED -j RETURN >/dev/null 2>&1 || \
+		echo_date "提示：内核不支持 conntrack/state match，filter层guard未加ESTABLISHED短路（功能正常，仅多耗CPU）。"
+	# DNS(UDP/53) 交给既有 DNS 劫持逻辑，guard 不干预，避免改变现有 DNS 行为；
+	# TCP/53 同理（DNS-over-TCP 是截断重试的回退路径），不能 reset。
 	iptables -t filter -A SHADOWSOCKS_FWD -p udp --dport 53 -j RETURN >/dev/null 2>&1
+	iptables -t filter -A SHADOWSOCKS_FWD -p tcp --dport 53 -j RETURN >/dev/null 2>&1
 	# 白名单与大陆 IP：正常直连转发。白名单优先于黑名单，与 nat/mangle 链的 white-first
 	# 语义一致——同一 IP 同时命中黑白名单时，nat 已放行直连，guard 若再拦会掐断该连接。
 	iptables -t filter -A SHADOWSOCKS_FWD -m set --match-set white_list dst -j RETURN >/dev/null 2>&1
@@ -2304,6 +2845,34 @@ apply_forward_guard(){
 	echo_date 大陆白名单模式：已启用filter层境外兜底\(TCP reset / QUIC即时回退，非443境外UDP如游戏保持直连\)。
 }
 
+# 「DNS劫持=全部(2)」的前置放行：把加密DNS从代理接管里放出去，让它落到 filter/FORWARD 的
+# SHADOWSOCKS_DNSF 上被真正拦掉。调用方：apply_nat_rules 对 nat/SHADOWSOCKS(tcp) 与
+# mangle/SHADOWSOCKS(udp) 各调一次，必须紧跟建链、排在 ACL 规则与模式链兜底之前。
+#
+# 【为什么必须有这一步】SHADOWSOCKS_DNSF 建在 filter/FORWARD，但境外解析器的包在到达 FORWARD
+# 之前就被抢走了：
+#   - TCP/853(DoT)、TCP/443(DoH) 在 nat PREROUTING 命中 !chnroute 被 REDIRECT 到本机 3333；
+#   - UDP/443(DoH over HTTP/3) 在 mangle PREROUTING 被 TPROXY 偷走（仅QUIC档及以上）；
+#   - 全量UDP档连 UDP/853(DoQ) 也一起被偷。
+# REDIRECT/TPROXY 之后包变成本机投递、走 INPUT，FORWARD 恒不遍历。于是 DNSF 只对命中 chnroute
+# 的【国内】加密DNS生效 —— 行为正好是反的：拦掉无害的国内 DoT/DoH，却把真正该挡的境外 DoH
+# 加密隧道化送出去，white_list 于是永远填不上，也就是 档2 号称要修的"加了白名单域名仍走代理"
+# 原因原封不动。而且档位越高漏得越多：全量UDP档下 DNSF 一条都不会命中。
+# 放行之后这些包走正常转发路径进 FORWARD → 被 DNSF REJECT → 客户端回退明文 53 → 被
+# apply_dns_force 的 DNAT 收进本机 dnsmasq。这才是 档2 设计意图的完整闭环。
+dns_force_bypass(){
+	local tbl="$1" chain="$2" proto="$3"
+	[ "$ss_basic_dns_hijack" == "2" ] || return 0
+	# DoT/DoQ：853 无需 ipset，无条件放行给 DNSF
+	iptables -t "$tbl" -A "$chain" -p "$proto" --dport 853 -j RETURN >/dev/null 2>&1
+	# DoH：只放行已知解析器IP的 443，避免把全部 443 从代理里挖掉
+	if ipset list ss_doh >/dev/null 2>&1; then
+		iptables -t "$tbl" -A "$chain" -p "$proto" --dport 443 -m set --match-set ss_doh dst -j RETURN >/dev/null 2>&1
+	else
+		echo_date "警告：ss_doh集不存在，$tbl/$chain 的DoH($proto/443)放行未下发，已知解析器的DoH仍会被代理而绕过DNS劫持。"
+	fi
+}
+
 # DNS 强制（“DNS劫持=all/2”档）：白名单域名靠"客户端经路由器 dnsmasq 解析→ipset=/域名/white_list
 # 把该 IP 写入 white_list"才生效。若客户端用 DoH/DoT 或指向公共 DNS，查询绕过 dnsmasq，
 # 白名单域名的真实连接 IP 永远不进 white_list，就被 CHN !chnroute 兜底代理——这正是
@@ -2314,38 +2883,106 @@ apply_forward_guard(){
 # 规则不依赖 dnsmasq 瞬时状态：default 档同样改道到本机 dnsmasq，二者对 dnsmasq 的依赖完全相同
 # (原版或 fastlookup 均可)，重启间隙由客户端自行重试。仅当 iptables 规则写入失败才返回 1 回退
 # default。只作用于转发的客户端流量(FORWARD/PREROUTING -i br+)，不影响路由器自身上游 DNS(走 OUTPUT)。
+# dnsmasq 进程在不在。注意这【不包含】端口是否已绑定，两者必须分开看，见下。
+dnsmasq_running(){
+	[ -n "$(pidof dnsmasq)" ]
+}
+
+# dnsmasq 是否真的在应答（进程在 + UDP/53 已绑定）。
+# 只用于诊断与状态显示，【不要】拿它做门禁 —— 原因见 ensure_dnsmasq_for_force。
+dnsmasq_serving(){
+	dnsmasq_running || return 1
+	netstat -unl 2>/dev/null | grep -qE "[:.]53[[:space:]]" || return 1
+	return 0
+}
+
+# 「DNS劫持=全部(2)」的前置安全校验。
+#
+# 【要防的真实危险】档1 只劫持 UDP/53，dnsmasq 挂了客户端还能用 TCP DNS 逃生；
+# 档2 把 UDP/53 与 TCP/53 都 DNAT 到本机，一挂就是全网 DNS 全断。
+# 所以确实需要一道校验，不能什么都不看就把全网 53 引向本机。
+#
+# 【但校验绝不能看"端口绑没绑"】—— 这是本函数最关键的一点，写在这里免得以后被"优化"掉：
+#   dnsmasq 是先把配置全部解析完、才创建监听 socket 的。而本插件喂给它的配置有
+#   约 12.3 万行（cdn.txt 11.3万 + gfwlist.conf 1万），在 380 系列这种 ARMv7 老机器上
+#   解析窗口可以远超十几秒。若拿"UDP/53 有没有监听"做门禁，就会在【完全健康】的正常启动
+#   过程中超时误判成"起不来"，进而把用户明确选的【全部】档误回退成【默认】档。
+#   这正是本项目历史上已经踩过并修掉的坑（当时的结论是"劫持与 dnsmasq 瞬时状态解耦"），
+#   开着 dnsmasq-fastlookup 时更容易触发，因为替换后必然伴随一次完整重启+重新解析。
+#
+# 【正确的判据】用"进程在不在"来区分两种情况：
+#   - 进程在、端口还没绑  -> 它正在解析那 12 万行配置，是健康的启动中状态，直接放行；
+#   - 进程一直不在        -> 才是真的起不来（配置语法错、二进制不兼容等）。
+#   service restart_dnsmasq 是先杀旧进程再拉新进程，拉起本身很快，慢的是解析，
+#   所以"等进程出现"只需要很短的有界等待，不会和解析窗口打架。
+#
+# 【不再自动卸载 fastlookup】beta1 里那段"起不来就 umount_dnsmasq 回退原版"必须去掉：
+#   它会静默推翻用户明确开启的设置，而且在上面那个误判场景下会被无谓触发。
+#   真起不来时只回退档位（保留 TCP 逃生通道）并明确提示去查 fastlookup / 自定义 dnsmasq 配置，
+#   要不要关掉替换由用户决定。
+ensure_dnsmasq_for_force(){
+	local i=0
+	while [ "$i" -lt 20 ]; do
+		if dnsmasq_running; then
+			# 端口可能还没绑（正在解析大配置），这是正常的，不等它
+			dnsmasq_serving || echo_date "DNS劫持(all)：dnsmasq 已在运行、正在解析规则配置（约12万行），端口稍后就绪，按正常处理。"
+			return 0
+		fi
+		i=$((i + 1))
+		sleep 1
+	done
+	echo_date "！！！等待 20 秒仍未见 dnsmasq 进程，判定其启动失败。"
+	echo_date "！！！档【全部强制】会把 UDP/53 与 TCP/53 一起引向本机，dnsmasq 不在就是全网 DNS 全断，"
+	echo_date "！！！因此本次放弃【全部强制】，回退为【默认】档（只劫持 UDP/53，客户端仍可用 TCP DNS 兜底）。"
+	if [ -n "$(mount | grep ' on /usr/sbin/dnsmasq ')" ];then
+		echo_date "！！！当前挂着 dnsmasq-fastlookup。本插件不会替你卸掉它（那是你明确开启的设置），"
+		echo_date "！！！但请优先怀疑它与当前 dnsmasq 配置不兼容：把【替换为dnsmasq-fastlookup】关掉再试一次即可确认。"
+	else
+		echo_date "！！！请检查【自定义dnsmasq】里的配置是否有语法错误。"
+	fi
+	return 1
+}
+
 apply_dns_force(){
 	[ "$ss_basic_dns_hijack" == "2" ] || return 1
 
-	# TCP/53 能力探测（软降级）：本机无 TCP/53 监听则跳过 TCP 改道，
-	# 避免把 TCP DNS 改道到不应答端口导致客户端 TCP 超时（"转圈"）。UDP 强制 + DoT/DoH 仍生效。
-	local tcp53_ok=0
-	netstat -tnl 2>/dev/null | grep -qE "[:.]53[[:space:]]" && tcp53_ok=1
+	# 先确认 dnsmasq 真的在服务，再下发把全网 53 引向它的规则（含 fastlookup 回退阶梯）
+	ensure_dnsmasq_for_force || return 1
 
 	# 明文 DNS 改道：-I PREROUTING 1 确保先于 nat SHADOWSOCKS 链，否则 TCP/53 发往境外
 	# 解析器会命中 !chnroute 被 REDIRECT 进代理。目的为本机的 53 不改道，避免环路。
-	local br dst applied=0
+	#
+	# 【为什么删掉了原来的 TCP/53 监听探测】原先这里跑一次 `netstat -tnl`，取不到 53 就跳过
+	# TCP 改道。但本函数的调用链是 apply_ss -> load_nat -> chromecast -> apply_dns_force，
+	# 而 apply_ss 在 load_nat 前一行才刚执行 `service restart_dnsmasq` —— 那是异步的。
+	# 采样极易落在 dnsmasq 还没起来的窗口里，于是 tcp53_ok=0，TCP/53 改道整个会话缺席，
+	# 只留一行提示，而说明书(ss-menu 106)写的却是"劫持与dnsmasq运行状态解耦"。
+	# 探测本身也是多余的：DNAT 目标就是本机 dnsmasq，跟 UDP/53 同一个进程、同一份配置，
+	# dnsmasq 在跑就必然同时监听 TCP/53；不在跑时 UDP 改道一样没人应答，单独保护 TCP 无意义。
+	# 所以直接下发，重启间隙交给客户端重试（DNS 客户端本来就带重试）。
+	local br dst nbr=0 nfail=0
 	for br in $(ifconfig | grep -E "^br" | awk '{print $1}'); do
 		dst=$(ifconfig "$br" | grep "inet addr" | awk '{print $2}' | awk -F: '{print $2}')
 		[ -n "$dst" ] || continue
-		iptables -t nat -I PREROUTING 1 -i "$br" -p udp --dport 53 ! -d "$dst" -j DNAT --to-destination "$dst":53 >/dev/null 2>&1 && applied=1
-		[ "$tcp53_ok" == "1" ] && iptables -t nat -I PREROUTING 1 -i "$br" -p tcp --dport 53 ! -d "$dst" -j DNAT --to-destination "$dst":53 >/dev/null 2>&1
+		nbr=$((nbr + 1))
+		iptables -t nat -I PREROUTING 1 -i "$br" -p udp --dport 53 ! -d "$dst" -j DNAT --to-destination "$dst":53 >/dev/null 2>&1 || nfail=$((nfail + 1))
+		iptables -t nat -I PREROUTING 1 -i "$br" -p tcp --dport 53 ! -d "$dst" -j DNAT --to-destination "$dst":53 >/dev/null 2>&1 || nfail=$((nfail + 1))
 	done
-	if [ "$applied" != "1" ]; then
-		echo_date "DNS劫持(all)：53 改道规则写入失败，自动回退默认劫持(default)。"
+	# 判据改成 AND 语义并覆盖 TCP：原来只看 UDP 单条、且跨网桥取 OR，
+	# 于是 TCP 段写失败被完全吞掉，日志与界面照旧宣称"全部强制已启用"。
+	# 现在只要有任一条没写上就整体回退 default，宁可退回原版行为也不要半套。
+	if [ "$nbr" == "0" ] || [ "$nfail" != "0" ]; then
+		echo_date "DNS劫持(all)：53 改道规则未能完整写入（网桥数=$nbr，失败条数=$nfail），自动回退默认劫持(default)。"
 		clean_dns_force
 		return 1
 	fi
-	[ "$tcp53_ok" != "1" ] && echo_date "DNS劫持(all)：本机未监听 TCP/53，已跳过 TCP/53 改道（仅 UDP 强制 + DoT/DoH）。"
 
-	# 加密 DNS 拦截链（REJECT 不可用自动 DROP）
-	ipset -! create ss_doh nethash >/dev/null 2>&1 && ipset flush ss_doh >/dev/null 2>&1
-	# 已知公共 DoH/DoT 解析器 IP（Cloudflare/Google/Quad9/OpenDNS/AdGuard/CleanBrowsing/NextDNS 等）
-	for ip in 1.1.1.1 1.0.0.1 1.1.1.2 1.0.0.2 8.8.8.8 8.8.4.4 9.9.9.9 149.112.112.112 149.112.112.9 \
-		208.67.222.222 208.67.220.220 94.140.14.14 94.140.15.15 76.76.2.0 76.76.10.0 \
-		185.228.168.9 185.228.169.9 45.90.28.0 45.90.30.0; do
-		ipset -! add ss_doh "$ip" >/dev/null 2>&1
-	done
+	# 加密 DNS 拦截链（REJECT 不可用自动 DROP）。ss_doh 集由 create_ipset 建好并填充，
+	# 这里只引用，不再现建 —— 见 create_ipset 里的说明。
+	#
+	# 注意：本链【不加】ESTABLISHED 短路。SHADOWSOCKS_FWD 需要短路是因为它头两条就对每个包
+	# 无条件查 white_list/chnroute；本链每条规则都先被 --dport 853/443 挡住，非DNS流量根本
+	# 走不到 ipset 查询，本身就很便宜。加了短路反而会放过插件启动前就已建立的 DoH 长连接。
 	iptables -t filter -N SHADOWSOCKS_DNSF >/dev/null 2>&1
 	iptables -t filter -F SHADOWSOCKS_DNSF >/dev/null 2>&1
 	# DoT：TCP/UDP 853
@@ -2364,6 +3001,24 @@ apply_dns_force(){
 	return 0
 }
 
+# 撤销 dns_force_bypass 在 nat/mangle SHADOWSOCKS 头部写下的 DoT/DoH 放行(RETURN)。
+#
+# 【为什么不能并进 clean_dns_force】clean_dns_force 会在 chromecast 开头被调用一次做档位
+# 切换清理，而那时 apply_nat_rules 刚刚为本次的 档2 合法地下发过这些放行规则 ——
+# 在那里删掉会把正常工作的 档2 拆了。所以只在【回退】这一条路径上调用本函数。
+#
+# 【不撤销的后果】放行规则的意义是"把加密DNS从代理里挖出来，交给 SHADOWSOCKS_DNSF 去 REJECT"。
+# 回退时 DNSF 已经不存在（clean_dns_force 拆了，apply_dns_force 也没建成），只剩放行 ——
+# 于是发往那 19 个已知解析器的 DoT(853)/DoH(443) 既不进代理、也不被拦，直接明文出境。
+# 这些设备的 DNS 全程不经本机 dnsmasq，黑白名单里的【域名】条目对它们彻底失效，
+# 比用户从没开过 档2 还差，与回退分支注释里"保证至少不比原版差"的目标正好相反。
+clean_dns_bypass(){
+	while iptables -t nat    -D SHADOWSOCKS -p tcp --dport 853 -j RETURN >/dev/null 2>&1; do :; done
+	while iptables -t nat    -D SHADOWSOCKS -p tcp --dport 443 -m set --match-set ss_doh dst -j RETURN >/dev/null 2>&1; do :; done
+	while iptables -t mangle -D SHADOWSOCKS -p udp --dport 853 -j RETURN >/dev/null 2>&1; do :; done
+	while iptables -t mangle -D SHADOWSOCKS -p udp --dport 443 -m set --match-set ss_doh dst -j RETURN >/dev/null 2>&1; do :; done
+}
+
 # 清理 DNS 强制(all)产生的规则/集合（档位切换回退与停止流程复用）
 clean_dns_force(){
 	while iptables -t filter -D FORWARD -i br+ -j SHADOWSOCKS_DNSF >/dev/null 2>&1; do :; done
@@ -2376,10 +3031,20 @@ clean_dns_force(){
 		while iptables -t nat -D PREROUTING -i "$br" -p udp --dport 53 ! -d "$dst" -j DNAT --to-destination "$dst":53 >/dev/null 2>&1; do :; done
 		while iptables -t nat -D PREROUTING -i "$br" -p tcp --dport 53 ! -d "$dst" -j DNAT --to-destination "$dst":53 >/dev/null 2>&1; do :; done
 	done
-	ipset -F ss_doh >/dev/null 2>&1 && ipset -X ss_doh >/dev/null 2>&1
+	# 不在这里销毁 ss_doh：本函数也被 chromecast 在 apply_dns_force 之前调用一次做档位切换清理，
+	# 而那时 nat/mangle 的 SHADOWSOCKS 链里已经有引用该集合的放行规则了 ——
+	# ipset -X 会因 "set is in use" 失败，但 ipset -F 会成功，把19条解析器IP全清空，
+	# 导致加密DNS放行规则匹配不到任何目标而失效。集合的销毁统一交给 flush_nat。
 }
 
 # create ipset rules
+# 已知公共 DoH/DoT 解析器 IP（Cloudflare/Google/Quad9/OpenDNS/AdGuard/CleanBrowsing/
+# ControlD/NextDNS 等）。注意 76.76.2.0 / 76.76.10.0 / 45.90.28.0 / 45.90.30.0 看着像网段，
+# 但确实是 ControlD 与 NextDNS 对外公布的可用 anycast 地址本身，不是笔误、不要改成 /24。
+SS_DOH_IPS="1.1.1.1 1.0.0.1 1.1.1.2 1.0.0.2 8.8.8.8 8.8.4.4 9.9.9.9 149.112.112.112 149.112.112.9
+	208.67.222.222 208.67.220.220 94.140.14.14 94.140.15.15 76.76.2.0 76.76.10.0
+	185.228.168.9 185.228.169.9 45.90.28.0 45.90.30.0"
+
 create_ipset(){
 	echo_date 创建ipset名单
 	ipset -! create white_list nethash && ipset flush white_list
@@ -2387,6 +3052,14 @@ create_ipset(){
 	ipset -! create gfwlist nethash && ipset flush gfwlist
 	ipset -! create router nethash && ipset flush router
 	ipset -! create chnroute nethash && ipset flush chnroute
+	# ss_doh 的生命周期必须由 create_ipset 拥有，不能再由 apply_dns_force 现建现用：
+	# apply_dns_force 跑在 chromecast(load_nat 尾部)，而引用该集合的 -m set 规则在
+	# apply_nat_rules 里就要下发，晚建会导致规则写入失败而静默丢掉整个加密DNS放行。
+	# 这里无条件建（19条，开销可忽略），由 flush_nat 统一销毁。
+	ipset -! create ss_doh nethash && ipset flush ss_doh
+	for ip in $SS_DOH_IPS; do
+		ipset -! add ss_doh "$ip" >/dev/null 2>&1
+	done
 	sed -e "s/^/add chnroute &/g" /koolshare/ss/rules/chnroute.txt | awk '{print $0} END{print "COMMIT"}' | ipset -R
 }
 
@@ -2548,10 +3221,41 @@ lan_acess_control(){
 			# 2 acl in OUTPUT（used by koolproxy）
 			iptables -t nat -A SHADOWSOCKS_EXT -p tcp  $(factor $ports "-m multiport --dport") -m mark --mark "$ipaddr_hex" -$(get_jump_mode $proxy_mode) $(get_action_chain $proxy_mode)
 			# 3 acl in SHADOWSOCKS for mangle
-			if [ "$proxy_mode" == "3" ];then
-				iptables -t mangle -A SHADOWSOCKS $(factor $ipaddr "-s") -p udp $(factor $ports "-m multiport --dport") -$(get_jump_mode $proxy_mode) $(get_action_chain $proxy_mode)
-			else
-				[ "$mangle" == "1" ] && iptables -t mangle -A SHADOWSOCKS $(factor $ipaddr "-s") -p udp -j RETURN
+			#
+			# 原来这里是：游戏模式主机按自己的模式链分流，【其余一律 -p udp -j RETURN】。
+			# 后果是「同步UDP与TCP」对任何出现在访问控制列表里的主机完全失效 —— 用户把手机
+			# 加进 ACL 设成"全局模式"、再把同步UDP开到"全量"，那台手机的 UDP 一条都不会走代理，
+			# 而日志照样报加载成功。ACL 恰恰是用户放这类设备的地方，所以这是该功能最大的窟窿。
+			# 现在改成让每台 ACL 主机的 UDP 走它自己的模式链，与它的 TCP 语义对齐：
+			# get_action_chain 0 天然是 RETURN，所以"不通过代理"的主机行为不变；
+			# 五条 mangle 模式链已在上面预建齐全，不存在跳空链的问题。
+			# 端口限定与 TCP 那条保持一致（$ports），限了端口的主机其余 UDP 落到链尾的
+			# 【剩余主机】兜底规则，跟 TCP 的处理路径完全对称。
+			#
+			# 注意负载：这会让此前直连的 ACL 主机 UDP 进入 TPROXY。在"仅代理QUIC"档只多了
+			# UDP/443，影响有限；"全量UDP"档下 BT/P2P 会明显抬高 CPU 与 conntrack —— 这本来
+			# 就是用户选择该档位的既定代价，但需真机验证。
+			#
+			# 两个分支都必须带 mangle 守卫：新增的 TPROXY 探测/fwmark 冲突检测会在运行时把
+			# mangle 清空，此时 mangle 的 SHADOWSOCKS 链根本没建，无守卫的 -A 会打出裸
+			# iptables 报错而脚本仍报启动成功（原来只有 else 分支有守卫）。
+			#
+			# 【档位守卫，与链尾兜底规则(见下面 -A SHADOWSOCKS -p udp -j ...)同款】
+			# 光有 mangle==1 不够：mangle 可能仅仅因为"存在游戏模式ACL主机"而置位
+			# （脚本顶部 `[ -n "$game_on" ] || ... && mangle=1`），此时用户的
+			# 【同步UDP与TCP】其实是【关闭】。若这里无条件按各主机自己的模式链分流，
+			# 一台设成"全局模式"的ACL主机就会在用户明确选了【关闭】的情况下被全量代理UDP，
+			# 而【剩余主机】因为链尾兜底有档位守卫、行为却是正确的直连 —— 同一台路由器上
+			# 两类主机表现相反，用户完全无法归因。
+			# 判据与链尾兜底保持一致，另加 proxy_mode==3：游戏模式主机本身就需要全量UDP，
+			# 它是 mangle 置位的原因，不能被这道守卫挡掉。
+			if [ "$mangle" == "1" ];then
+				if [ "$proxy_mode" == "3" ] || [ "$ss_basic_mode" == "3" ] || [ "$ss_basic_udp_sync" == "1" ] || [ "$ss_basic_udp_sync" == "2" ] || [ "$ss_basic_udp_sync" == "3" ];then
+					iptables -t mangle -A SHADOWSOCKS $(factor $ipaddr "-s") -p udp $(factor $ports "-m multiport --dport") -$(get_jump_mode $proxy_mode) $(get_action_chain $proxy_mode)
+				else
+					# 档位=关闭且本机非游戏模式：恢复上游语义，该主机UDP整机直连
+					iptables -t mangle -A SHADOWSOCKS $(factor $ipaddr "-s") -p udp -j RETURN
+				fi
 			fi
 		done
 
@@ -2577,6 +3281,59 @@ lan_acess_control(){
 	dbus remove ss_acl_port
 }
 
+# 把"本次实际生效的UDP代理状态"回写dbus，供Web主界面状态面板显示。
+# 存在的意义：ss_basic_udp_sync 是用户的请求值，而实际生效档位会被节点核心能力(96-102)、
+# 内核TPROXY探测与fwmark/table冲突检测(load_tproxy一段)就地降级，这些降级都不写dbus。
+# 只回显 ss_basic_udp_sync 等于把这个偏差原样搬到界面上，所以这里回写的是降级后的真实状态。
+# 必须在全部降级判定与hook下发之后调用。
+write_udp_runtime_state(){
+	local st="off" txt="" req=""
+	# 降级提示里点明"你选的是哪一档"，否则用户看到"UDP全部直连"会以为是自己没开
+	case "$SS_UDP_REQ" in
+		1) req="全量UDP" ;;
+		2) req="仅代理QUIC" ;;
+		3) req="仅代理QUIC+Game" ;;
+		*) req="关闭" ;;
+	esac
+	[ "$ss_basic_mode" == "3" ] && req="游戏模式"
+	if [ -n "$SS_UDP_DEGRADE" ]; then
+		case "$SS_UDP_DEGRADE" in
+			hy2_udp_unsupported) st="degraded_plugin"; txt="已降级：这份 hysteria 构建不接受 udpTProxy（透明UDP入站），已回退纯TCP；TCP代理不受影响" ;;
+			hy2_udp_off) st="degraded_node"; txt="未启用：Hysteria2 节点的 UDP 透明代理开关没开（在【Hysteria2设定】里打开即可），本次仅TCP代理" ;;
+			node)     st="degraded_node";   txt="已降级：本插件未为当前节点类型配置透明UDP入站（naive/hysteria2/anytls）——是缺配置而非核心无能力" ;;
+			plugin)   st="degraded_plugin"; txt="已降级：节点启用了 SIP003 插件 simple-obfs，它没有UDP通路，UDP会绕过插件直发服务端而不被接受（CDN前置节点还可能因此招致限流）" ;;
+			tproxy)   st="degraded_kernel"; txt="已降级：内核不接受TPROXY（缺xt_TPROXY或版本过老）" ;;
+			fwmark)   st="degraded_kernel"; txt="已降级：fwmark 0x07 被其它组件占用（QoS/VPN?）" ;;
+			table310) st="degraded_kernel"; txt="已降级：路由表310被其它组件占用" ;;
+		esac
+		txt="$txt。你选择的【$req】未能生效，本次UDP全部直连"
+		[ "$ss_basic_mode" == "2" ] && txt="$txt（境外QUIC由filter兜底拦截促TCP回退）"
+	elif [ "$mangle" != "1" ]; then
+		st="off"; txt="关闭：UDP不走代理"
+	elif [ "$ss_basic_mode" == "3" ] || [ -n "$game_on" ]; then
+		st="game"; txt="游戏模式：全量UDP透明代理（按chnroute分流）"
+	else
+		case "$ss_basic_udp_sync" in
+			1) st="full"; txt="全量UDP：所有UDP按当前模式分流走代理（高负载）" ;;
+			2) st="quic"; txt="仅代理QUIC：境外QUIC(UDP/443)走代理，其余UDP直连" ;;
+			3) if [ -n "$GAME_PORTS" ]; then
+					st="quic_game"; txt="仅代理QUIC+Game：QUIC(UDP/443)与Game端口【$(echo $GAME_PORTS | sed 's/:/-/g')】走代理，其余UDP直连"
+				else
+					# GAME_PORTS 有三条清空路径：没填、语法没过、以及 multiport 规则
+					# 写入失败后的回填。原文案只提"语法检查未通过"，写入失败时是误导。
+					st="quic"; txt="仅代理QUIC：Game端口未配置、语法检查未通过、或规则写入失败，本次仅代理QUIC(UDP/443)，详见日志"
+				fi ;;
+			*) st="off"; txt="关闭：UDP不走代理" ;;
+		esac
+	fi
+	dbus set ss_runtime_udp_state="$st" >/dev/null 2>&1
+	dbus set ss_runtime_udp_text="$txt" >/dev/null 2>&1
+	# 紧接着跑一次运行层实测，把 ss_runtime_udp_probe* 一起刷新，界面不必等到下一次 cron。
+	# 探测逻辑只有 cru/udp.sh 一份实现（本函数管"配置层档位"，它管"此刻立起来了没有"），
+	# 不在这里复制一遍，避免两处判据漂移。
+	[ -f /koolshare/ss/cru/udp.sh ] && sh /koolshare/ss/cru/udp.sh >/dev/null 2>&1
+}
+
 apply_nat_rules(){
 	#----------------------BASIC RULES---------------------
 	echo_date 写入iptables规则到nat表中...
@@ -2587,6 +3344,11 @@ apply_nat_rules(){
 	# IP/cidr/白域名 白名单控制（不走ss）
 	iptables -t nat -A SHADOWSOCKS -p tcp -m set --match-set white_list dst -j RETURN
 	iptables -t nat -A SHADOWSOCKS_EXT -p tcp -m set --match-set white_list dst -j RETURN
+	# DNS劫持=全部 时把 DoT(TCP/853) 与已知解析器的 DoH(TCP/443) 放出代理，交给 filter 层
+	# SHADOWSOCKS_DNSF 拦截（不放行的话它们会被 REDIRECT 进代理，DNSF 永远不遍历）。
+	# 只加在 SHADOWSOCKS，不加 SHADOWSOCKS_EXT：后者是 nat/OUTPUT 上 koolproxy 回注的
+	# 路由器自身流量，走 OUTPUT 不走 FORWARD，DNSF 本来就够不着，放行只会让它变直连。
+	dns_force_bypass nat SHADOWSOCKS tcp
 	#-----------------------FOR GLOABLE---------------------
 	# 创建gfwlist模式nat rule
 	iptables -t nat -N SHADOWSOCKS_GLO
@@ -2637,13 +3399,28 @@ apply_nat_rules(){
 	if [ "$mangle" == "1" ]; then
 		if ! load_tproxy; then
 			mangle=""
+			SS_UDP_DEGRADE="tproxy"
 		elif ip rule show 2>/dev/null | grep -qE "fwmark 0x7( |/|$)" && [ -z "`ip rule show 2>/dev/null | grep 'lookup 310'`" ]; then
 			# 别的组件占用了fwmark 0x07但不是我们的table 310路由，避免抢占
 			echo_date "检测到fwmark 0x07已被其它组件占用(QoS/VPN?)，为避免冲突降级为TCP-only。"
 			mangle=""
-		elif [ -n "`ip route show table 310 2>/dev/null`" ] && [ -z "`ip route show table 310 2>/dev/null | grep 'local 0.0.0.0/0 dev lo'`" ]; then
+			SS_UDP_DEGRADE="fwmark"
+		# 【必须按内核【渲染结果】匹配，不能按下发命令的字面量】
+		# 下发的是 `ip route add local 0.0.0.0/0 dev lo table 310`（见下方 3162 行），
+		# 但 iproute2 会把 0.0.0.0/0 规范化成 default，真机实测输出是：
+		#     local default dev lo  scope host
+		# 原先这里 grep 的是 'local 0.0.0.0/0 dev lo'，对上面那行【必然匹配不到】——
+		# 于是只要 table 310 里还残留着【我们自己上一次下发的路由】就进这个分支，
+		# 被判成"被其它组件占用" → mangle="" → SS_UDP_DEGRADE="table310"，
+		# 状态栏显示"路由表310被其它组件占用"，归因完全错误。
+        # 正常 apply 路径上 flush_nat 会先 `ip route del ...` 清空，所以平时看不出来；
+		# 上一次 apply 中途失败、或 del 没删干净时就会踩到。
+		# 隔壁 3151 行的 fwmark 判据当初就是按渲染形(0x7)写的，唯独这条按了字面量。
+		# 两种渲染都收，兼容不同 iproute2 版本。
+		elif [ -n "`ip route show table 310 2>/dev/null`" ] && [ -z "`ip route show table 310 2>/dev/null | grep -E 'local (default|0\.0\.0\.0/0) dev lo'`" ]; then
 			echo_date "检测到table 310已被其它组件占用，为避免冲突降级为TCP-only。"
 			mangle=""
+			SS_UDP_DEGRADE="table310"
 		else
 			ip rule add fwmark 0x07 table 310
 			ip route add local 0.0.0.0/0 dev lo table 310
@@ -2654,6 +3431,10 @@ apply_nat_rules(){
 		iptables -t mangle -N SHADOWSOCKS
 		# DNS(UDP/53)优先RETURN，留给NAT层DNS劫持处理，避免LAN DNS查询被TPROXY误送入代理(B5)
 		iptables -t mangle -A SHADOWSOCKS -p udp --dport 53 -j RETURN
+		# DNS劫持=全部 时把 DoQ(UDP/853) 与已知解析器的 DoH-over-HTTP3(UDP/443) 放出 TPROXY，
+		# 交给 filter 层 SHADOWSOCKS_DNSF 拦截。不放行的话：仅QUIC档会偷走 UDP/443、
+		# 全量档连 UDP/853 一起偷，DNSF 对境外加密DNS完全失效。
+		dns_force_bypass mangle SHADOWSOCKS udp
 		# IP/cidr/白域名 白名单控制（不走ss）
 		iptables -t mangle -A SHADOWSOCKS -p udp -m set --match-set white_list dst -j RETURN
 		# 预建全部模式的 mangle action 链，各填对应 UDP TPROXY 语义（镜像 nat 的 TCP 语义）。
@@ -2717,11 +3498,24 @@ apply_nat_rules(){
 			GAME_PORTS=""
 			[ "$ss_basic_udp_sync" == "3" ] && GAME_PORTS=$(validate_game_ports "$ss_basic_udp_sync_game_port")
 			if [ -n "$GAME_PORTS" ]; then
-				iptables -t mangle -I PREROUTING 1 -i br+ -p udp -m multiport --dports $GAME_PORTS -j SHADOWSOCKS
-				echo_date "仅代理QUIC+Game模式：境外QUIC（UDP/443）、Game端口【$(echo $GAME_PORTS | sed 's/:/-/g')】与黑名单目标UDP导入透明代理，其余UDP直连。"
+				# 必须看返回码再打日志：语法过了 validate_game_ports 也不代表 iptables 一定接受
+				# （槽位/内核multiport上限等），此前无条件打印"已导入代理"会在规则写失败时说谎。
+				# 写失败就把 GAME_PORTS 清空，让后面的 write_udp_runtime_state 也不会误报 quic_game。
+				if iptables -t mangle -I PREROUTING 1 -i br+ -p udp -m multiport --dports $GAME_PORTS -j SHADOWSOCKS; then
+					echo_date "仅代理QUIC+Game模式：境外QUIC（UDP/443）、Game端口【$(echo $GAME_PORTS | sed 's/:/-/g')】与黑名单目标UDP导入透明代理，其余UDP直连。"
+					# 宽端口段的负载提醒：槽位限制拦不住它，但它的实际效果接近全量UDP
+					GAME_PORT_CNT=$(count_game_ports "$GAME_PORTS")
+					if [ "$GAME_PORT_CNT" -gt 2048 ]; then
+						echo_date "！！！注意：Game端口共覆盖 ${GAME_PORT_CNT} 个端口，范围过宽，实际负载已接近【全量UDP】档。"
+						echo_date "！！！若路由器 CPU 吃紧或 conntrack 涨得厉害，请把端口收窄到游戏实际使用的范围。"
+					fi
+				else
+					echo_date "！！！Game端口【$(echo $GAME_PORTS | sed 's/:/-/g')】的multiport规则写入失败，本次不代理该端口，仅代理境外QUIC（UDP/443）与黑名单目标UDP。"
+					GAME_PORTS=""
+				fi
 			elif [ "$ss_basic_udp_sync" == "3" ]; then
 				if [ -n "$(echo "$ss_basic_udp_sync_game_port" | sed 's/[[:space:]]//g')" ]; then
-					echo_date "Game端口【$ss_basic_udp_sync_game_port】语法非法（应如 27015,7777-7778，端口1-65535，总槽位≤15），已忽略，不代理该端口！"
+					echo_date "Game端口【$ss_basic_udp_sync_game_port】语法非法（应如 27015,7777-7778；端口1-65535，总槽位≤15，不能有前导零），已忽略，不代理该端口！"
 				fi
 				echo_date "仅代理QUIC+Game模式：Game端口未配置或未通过语法检查，本次仅代理境外QUIC（UDP/443）与黑名单目标UDP，其余UDP直连。"
 			else
@@ -2739,6 +3533,8 @@ apply_nat_rules(){
 	if [ "$QOSO" -gt "1" ] && [ -z "$RRULE" ];then
 		iptables -t mangle -I QOSO0 -m mark --mark "$ip_prefix_hex" -j RETURN
 	fi
+	# 全部降级判定与hook下发都已完成，此刻的状态才是本次真正生效的状态
+	write_udp_runtime_state
 }
 
 dns_hijack_control(){
@@ -2765,6 +3561,65 @@ dns_hijack_default(){
 	done
 }
 
+# 把"本次实际生效的 DNS 劫持档位"回写 dbus，供主界面状态栏显示。
+# 存在的意义与 write_udp_runtime_state 完全对称：ss_basic_dns_hijack 是用户的请求值，
+# 而 档2 有两条静默回退路径 —— ①53 改道规则没能完整写入 ②dnsmasq 起不来
+#（见 ensure_dnsmasq_for_force）—— 两种情况都会退回 档1，但此前界面上一点看不出来：
+# 下拉框照旧显示"全部"，用户以为 DoT/DoH 正在被拦、白名单可靠生效，实际并没有。
+# UDP 那条链路已经做了"请求值 vs 生效值"的双层显示，DNS 这条不能缺。
+write_dns_runtime_state(){
+	local st="$1" txt="$2"
+	dbus set ss_runtime_dns_state="$st" >/dev/null 2>&1
+	dbus set ss_runtime_dns_text="$txt" >/dev/null 2>&1
+	# 同时回写 dnsmasq-fastlookup 的【实际】状态。
+	# 用户反馈过"明明开了替换、也确实替换了，DNS 这块两个选项依旧检测不出来" ——
+	# 此前界面上确实无处可看：档位是用户的请求值，而是否真的挂上了取决于
+	# mount_dnsmasq 的 --test 预检是否通过（不兼容会静默放弃替换只打一行日志）。
+	# 这里把"请求"与"实际"的差异显式暴露出来：
+	#   on            已挂载（替换生效）
+	#   want_but_off  档位要求替换、但实际没挂上（--test 未通过，或挂载失败）
+	#   off           档位不要求替换，也确实没挂
+	local fl="off"
+	if [ -n "$(mount | grep ' on /usr/sbin/dnsmasq ')" ];then
+		fl="on"
+	else
+		case "$ss_basic_dnsmasq_fastlookup" in
+			1|3) fl="want_but_off" ;;
+			2)   [ -L "/jffs/configs/dnsmasq.d/cdn.conf" ] && fl="want_but_off" ;;
+		esac
+	fi
+	dbus set ss_runtime_dns_fastlookup="$fl" >/dev/null 2>&1
+
+	# ---- 7913 这一层有没有"国内仲裁"，即隧道抖动时能不能自己兜住 ----
+	# 这是「直连网页偶尔卡顿」的结构性成因所在，也是把 strict-order 那点残留不确定性
+	# 彻底绕开的关键：卡顿是【两层都没有退路】造成的 ——
+	#   第一层 dnsmasq：大陆白名单模式下默认上游只有 127.0.0.1#7913，且 no-resolv 掉了本地后备；
+	#   第二层 7913 本身：若跑的是纯隧道解析器，它自己也没有国内上游可退。
+	# 只要第二层自带仲裁，隧道抖动时它会用国内上游应答，第一层有没有 strict-order 都不影响。
+	# 按 start_dns 里各方案实际的启动参数分类（不是猜的）：
+	#   5  chinadns1    -s $CDN,127.0.0.1:1055 -c chnroute.txt   国内+隧道，chnroute 仲裁 -> self
+	#   10 ChinaDNS-NG  -c ${CDN}#53 -t 127.0.0.1#1055           国内+隧道仲裁           -> self
+	#   2  chinadns2    -s $ss_chinadns_user -c chnroute.txt      取决于用户填的服务器列表 -> unknown
+	#   9  SmartDNS     取决于 smartdns.conf                                              -> unknown
+	#   1  cdns         cdns.json 里 4 个上游全是境外，timeout 2s                          -> tunnel_only
+	#   3  dns2socks / 4 ss-tunnel / 6 https_dns_proxy / 7 v2ray_dns  纯隧道               -> tunnel_only
+	#   8  直连         直连境外 DNS，不走隧道但易污染/超时                                -> tunnel_only
+	local arb="tunnel_only"
+	case "$ss_foreign_dns" in
+		5|10)  arb="self" ;;
+		2|9)   arb="unknown" ;;
+	esac
+	dbus set ss_runtime_dns_arbiter="$arb" >/dev/null 2>&1
+
+	# 只有「全部强制」档才提示：该档把所有客户端的 DNS 都强行拉进这条链路，
+	# 原本自带公共DNS/DoH绕开的设备也进来了，没有仲裁时卡顿会被放大到全网。
+	if [ "$ss_basic_dns_hijack" == "2" ] && [ "$arb" == "tunnel_only" ];then
+		echo_date "提示：当前【国外DNS方案】的 7913 解析器是纯隧道型（无国内上游仲裁）。"
+		echo_date "提示：隧道抖动时，不在 gfwlist / cdn 列表里的域名会解析超时，表现为【直连网页偶尔卡住、等一会儿才刷出来】。"
+		echo_date "提示：把【国外DNS方案】改为 ChinaDNS-NG（或 chinadns1）可从根上消除该现象——它们自带国内+隧道仲裁。"
+	fi
+}
+
 chromecast(){
 	# 清理旧的默认劫持链跳转（SHADOWSOCKS_DNS_*）
 	chromecast_nu=`iptables -t nat -L PREROUTING -v -n --line-numbers|grep "SHADOWSOCKS_DNS_"|awk '{print $1}'|sort -r`
@@ -2780,18 +3635,24 @@ chromecast(){
 	case "$ss_basic_dns_hijack" in
 		2)
 			if apply_dns_force; then
-				:
+				write_dns_runtime_state "all" "全部强制：TCP/UDP-53 改道本机dnsmasq，并拦截 DoT(853) 与已知 DoH 解析器"
 			else
-				# 仅当规则写入失败才回退 default，保证至少不比原版差
+				# 仅当规则写入失败或 dnsmasq 起不来才回退 default，保证至少不比原版差。
+				# 必须先撤销加密DNS放行：否则 DNSF 已拆、放行还在，
+				# DoT/DoH 会从"被代理"变成"明文直连"，比不开 档2 更差（见 clean_dns_bypass）。
+				clean_dns_bypass
 				dns_hijack_default
+				write_dns_runtime_state "fallback_default" "已回退【默认】档：全部强制未能生效（53改道规则未写全，或本机dnsmasq未就绪），当前只劫持UDP/53，DoT/DoH未拦截"
 			fi
 			;;
 		1)
 			echo_date 开启DNS劫持功能\(默认模式\)，防止DNS污染...
 			dns_hijack_default
+			write_dns_runtime_state "default" "默认：只把 LAN 的 UDP/53 劫持到本机dnsmasq（挡不住 DoH/DoT）"
 			;;
 		*)
 			echo_date DNS劫持功能未开启，建议开启！
+			write_dns_runtime_state "off" "关闭：不劫持，客户端可自定义DNS（黑白名单域名可能因此失效）"
 			;;
 	esac
 }
@@ -3054,6 +3915,17 @@ disable_ss(){
 	umount_dnsmasq_now
 	restart_dnsmasq
 	kill_cron_job
+	dbus set ss_runtime_udp_state="disabled" >/dev/null 2>&1
+	dbus set ss_runtime_udp_text="插件未启用" >/dev/null 2>&1
+	dbus set ss_runtime_udp_probe="off" >/dev/null 2>&1
+	dbus set ss_runtime_udp_probe_text="插件未启用" >/dev/null 2>&1
+	dbus set ss_runtime_dns_state="off" >/dev/null 2>&1
+	dbus set ss_runtime_dns_text="插件未启用" >/dev/null 2>&1
+	# DNS 那一行的三个附属芯片也要复位，否则关掉插件后界面还挂着上一次的状态：
+	# 尤其 fastlookup —— 上面 umount_dnsmasq_now 已经把它卸了，界面却仍显示绿色"已挂载"。
+	dbus set ss_runtime_dns_fastlookup="off" >/dev/null 2>&1
+	dbus set ss_runtime_dns_arbiter="unknown" >/dev/null 2>&1
+	dbus set ss_runtime_dns_fallback="off" >/dev/null 2>&1
 	echo_date ------------------------ 【科学上网】已关闭 ----------------------------
 }
 
@@ -3072,6 +3944,33 @@ apply_ss(){
 	remove_ss_trigger_job
 	remove_ss_reboot_job
 	restore_conf
+	# koolgame(type=2)熔断：本分支已不再分发koolgame二进制(install.sh的TARGET_BIN还会主动删除
+	# 路由器上残存的koolgame/pdu)，create_ss_json也已删掉type=2分支。于是既没有3333的透明代理
+	# 监听，也没有原版由koolgame进程自带的7913 dns2ss上游(原版ssconfig.sh的koolgame json含
+	# "dns2ss":7913，这正是下面start_dns对type=2跳过的前提)。若继续往下走：
+	# create_dnsmasq_conf+dnsmasq.postconf会把dnsmasq置为no-resolv+server=127.0.0.1#7913(死端口)，
+	# load_nat又会下发REDIRECT/TPROXY→3333(无监听)、DNS劫持与FORWARD guard，DNS与代理双黑洞，
+	# 而脚本仍打印"启动完毕"。故在任何配置生成与规则下发之前退出，并按disable_ss的同序收尾，
+	# 把路由器还原成"插件未启用"的干净直连状态。本熔断不新建任何链/规则/ipset，flush_nat无需同步改。
+	if [ "$ss_basic_type" == "2" ];then
+		echo_date "！！！当前节点类型为koolgame，本版本已移除koolgame支持（二进制不再分发）。"
+		echo_date "！！！为避免DNS上游与转发规则指向不存在的进程而整链断网，已跳过全部启动与规则下发。"
+		echo_date "！！！iptables规则、ipset与dnsmasq配置均已还原，网络保持直连可用。"
+		echo_date "！！！请到【节点设置】改选SS/V2Ray/Xray/Trojan/Hysteria2/AnyTLS等其它类型节点后重新应用。"
+		flush_nat
+		umount_dnsmasq_now
+		restart_dnsmasq
+		kill_cron_job
+		dbus set ss_runtime_udp_state="disabled" >/dev/null 2>&1
+		dbus set ss_runtime_udp_text="插件未启动：koolgame节点已不再支持" >/dev/null 2>&1
+		dbus set ss_runtime_udp_probe="fail" >/dev/null 2>&1
+		dbus set ss_runtime_udp_probe_text="插件未启动：koolgame节点已不再支持，请改选其它类型节点" >/dev/null 2>&1
+		dbus set ss_runtime_dns_state="off" >/dev/null 2>&1
+		dbus set ss_runtime_dns_text="插件未启动：koolgame节点已不再支持" >/dev/null 2>&1
+		SS_START_ABORTED=1
+		echo_date ------------------------ 【科学上网】 未启动 ------------------------
+		return 0
+	fi
 	# restart dnsmasq when ss server is not ip or on router boot
 	restart_dnsmasq
 	flush_nat
@@ -3093,15 +3992,18 @@ apply_ss(){
 	[ -z "$WAN_ACTION" ] && [ "$ss_basic_type" = "4" -a "$ss_basic_trojan_binary" == "Trojan" ] && create_trojan_json
 	[ -z "$WAN_ACTION" ] && [ "$ss_basic_type" = "4" -a "$ss_basic_trojan_binary" == "Trojan-Go" ] && create_trojango_json
 	[ -z "$WAN_ACTION" ] && [ "$ss_basic_type" = "5" ] && create_naive_json
-	[ -z "$WAN_ACTION" ] && [ "$ss_basic_type" = "4" -a "$ss_basic_trojan_binary" == "Hysteria2" ] && create_hy2_json
+	if [ -z "$WAN_ACTION" ] && [ "$ss_basic_type" = "4" -a "$ss_basic_trojan_binary" == "Hysteria2" ]; then
+		create_hy2_json || close_in_five
+	fi
 	[ "$ss_basic_type" == "0" ] || [ "$ss_basic_type" == "1" ] && start_ss_redir
-	[ "$ss_basic_type" == "2" ] && echo_date "koolgame已不再支持，跳过启动，请更换其它类型节点！"
 	[ "$ss_basic_type" == "3" ] || [ "$ss_basic_type" == "4" -a "$ss_basic_trojan_binary" == "Trojan" ] && start_xray_core
 	[ "$ss_basic_type" == "4" -a "$ss_basic_trojan_binary" == "Trojan-Go" ] && start_trojango
 	[ "$ss_basic_type" == "5" ] && start_naiveproxy
 	[ "$ss_basic_type" == "4" -a "$ss_basic_trojan_binary" == "Hysteria2" ] && start_hy2
 	[ "$ss_basic_type" == "4" -a "$ss_basic_trojan_binary" == "AnyTLS" ] && start_anytls
-	[ "$ss_basic_type" != "2" ] && start_dns
+	# type=2(koolgame)已在函数开头熔断返回，此处无需再排除；原版跳过start_dns是因为
+	# koolgame进程自带7913 dns2ss，本分支既无该进程也不该走到这里。
+	start_dns
 	# dnsmasq替换(fastlookup)：bind mount不影响运行中的进程，由紧随的restart_dnsmasq完成换血；
 	# 放在create_dnsmasq_conf之后、load_nat之前，重启后即为最终形态。
 	mount_dnsmasq_now
@@ -3183,7 +4085,7 @@ restart)
 	apply_ss
 	write_numbers
 	echo_date
-	echo_date "Across the Great Wall we can reach every corner in the world!"
+	[ "$SS_START_ABORTED" != "1" ] && echo_date "Across the Great Wall we can reach every corner in the world!"
 	echo_date
 	echo_date ======================= 梅林固件 - 【科学上网】 ========================
 	#get_status >> /tmp/ss_start.txt

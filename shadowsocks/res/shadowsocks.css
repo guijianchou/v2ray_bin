@@ -1,345 +1,1162 @@
-.Bar_container {
-	width:85%;
-	height:20px;
-	border:1px inset #999;
-	margin:0 auto;
-	margin-top:20px \9;
-	background-color:#FFFFFF;
-	z-index:100;
+/* ============================================================================
+   科学上网插件 — 界面样式
+   ----------------------------------------------------------------------------
+   方向：保留 Merlin X380.6 固件原本的蓝灰配色（它与固件外壳本来就是一体的），
+         力气花在两件事上 ——
+         ① 圆角/边线/阴影/过渡的精细度：一套统一的半径梯度，嵌套圆角按"外=内+内边距"
+            推导，实心 #222 硬边换成发丝线，加极轻的顶部高光带出层次；
+         ② 配色统一：清点过实际用量 —— 7 种黄、6 种绿、3 种红、3 种青、5 种紫/宝蓝，
+            外加 6 套互不相同的按钮渐变（分布在 ASP 行内 style、ss-menu.js 生成的
+            <font color> 字符串、以及旧样式表里）。这里收敛成一套语义色阶，
+            并用属性选择器就地映射，不改任何标记。
+
+   不变的部分：全部沿用固件既有 class（.FormTable / .input_option / .ss_btn /
+   .show-btnN …），ASP 结构、JS 逻辑、dbus 键一律不动。
+   本文件在 <head> 里排在固件 CSS 之后，同特异度下胜出；固件大量使用行内 style 与
+   bgcolor 属性，那部分只能用 !important 压过，已就地注明。
+   ============================================================================ */
+
+:root {
+	/* ---- 结构色：直接沿用固件原值，不改 ---- */
+	--ss-panel:   #4D595D;   /* 面板/标题带（固件 bgcolor） */
+	--ss-head:    #2F3A3E;   /* 分组表头（固件 th） */
+	--ss-deep:    #1F2D35;   /* 最深层：日志/多行输入底 */
+	--ss-ctl:     #576D73;   /* 控件底（固件 input） */
+	--ss-ctl-hi:  #62797f;   /* 控件悬停 */
+	--ss-edge:    #6b8fa3;   /* 固件 bordercolor，用作分组头下的定位线 */
+	/* 注：固件的行底色 #475A5F 这里不再需要 —— 行改为透明叠在面板上，
+	   少一层不同底色的堆叠，发丝线才看得清楚。 */
+
+	/* ---- 发丝线：取代实心 #222 硬边，这是"细腻"的主要来源 ---- */
+	--ss-hair:      rgba(255, 255, 255, .09);
+	--ss-hair-soft: rgba(255, 255, 255, .055);
+	--ss-hair-in:   rgba(255, 255, 255, .05);   /* 顶部内高光 */
+	--ss-shade:     rgba(0, 0, 0, .22);
+
+	--ss-ink:   #ffffff;
+	--ss-ink-2: #dbe3e6;
+	--ss-muted: #a2b2b8;
+
+	/* ---- 强调色：单一，取固件自己的高亮蓝（原本就是当前标签页的颜色）---- */
+	--ss-accent:     #279fd9;
+	--ss-accent-hi:  #61b5de;
+	--ss-accent-dim: rgba(39, 159, 217, .16);
+	--ss-accent-ink: #0b2733;                   /* 蓝底上的深色字，对比度够 */
+
+	/* ---- 语义色阶：统一 ----------------------------------------------------
+	   全部调到相近的明度/彩度，落在 #475A5F 上都能读，彼此像同一套系统。
+	   与强调色分开：蓝只表示"可交互"，语义色只表示"状态"，互不顶替。 */
+	--ss-ok:    #6fc48f;   /* 收并 #1cfe16 #99FF00 #a4f072 #8dbf8b #33CC33 #669900 #a5b56f */
+	--ss-warn:  #e8b849;   /* 收并 #FC0 #FFBC00 #FFCC33 #FFCC00 #ffcc00 #e7bd16 #e2c628 */
+	--ss-crit:  #e8756f;   /* 收并 #FF0000 #FF5733 #F46 */
+	--ss-info:  #6ecfd6;   /* 收并 #00ffe4 #00CCFF #27c9c9 */
+	--ss-key:   #9b9fd8;   /* 收并 #9900CC #CC0066 #f072a5 #3c45f6 #00F（协议名等标识色） */
+	--ss-idle:  #93a3a9;
+
+	--ss-ok-bg:   rgba(111, 196, 143, .13);
+	--ss-warn-bg: rgba(232, 184, 73, .13);
+	--ss-crit-bg: rgba(232, 117, 111, .14);
+	--ss-idle-bg: rgba(147, 163, 169, .13);
+
+	/* ---- 半径梯度：一套，全文件只用这四个值，不再出现 0/3/5/10px 混用 ----
+	   层级关系是"同心"的：面板 10 → 内部分组/说明块 7 → 控件/按钮 5 → 药丸。
+	   分组表头贴着面板内壁，所以取 7 而不是 10，视觉上与外层圆角同心而不是套错圈。 */
+	--r-sm:   5px;    /* 控件、按钮 */
+	--r-md:   7px;    /* 卡片、表格分组、说明块、多行输入 */
+	--r-lg:   10px;   /* 外层面板、弹窗 */
+	--r-pill: 999px;  /* 标签页、状态芯片、进度条 */
+
+	/* ---- 间距梯度：与半径梯度同理，全文件只用这几个值 ----------------------
+	   之前 th 用 10px、td 用 8px、分组头用 9px，同一行的标签列与控件列垂直节奏
+	   对不上。现在统一到一个基数上：所有单元格垂直 --sp-2、水平 --sp-4。 */
+	--sp-1:  4px;
+	--sp-2:  9px;     /* 单元格垂直内边距（th/td 统一） */
+	--sp-4: 13px;     /* 单元格水平内边距 */
+
+	/* ---- 控件高度：一个值，按钮/输入/下拉/复选框全部对齐到它 ----
+	   行高取 height - 2×边框，避免文本在框内偏上。 */
+	--ss-ctl-h: 29px;
+
+	/* ---- 宽度阶梯：把行内写死的 32 种宽度收敛到 5 级 ----------------------
+	   审计结果：342px×19 与 350px×17 只差 8px、160px×10 与 164px×16 只差 4px。
+	   这种"近似而不相等"最伤观感 —— 右边缘参差，读起来像没对齐，
+	   比明显不同的宽度还难看。这些值写死在 ASP 行内 style 里，
+	   改标记要动几十处（且会碰到 JS 里拼出来的），所以在样式层用属性选择器就地归一，
+	   与上面收敛颜色是同一套办法。 */
+	--w-xs:  70px;    /* 端口、序号这类短数值 */
+	--w-sm: 100px;
+	--w-md: 162px;    /* 收 160 / 164 */
+	--w-lg: 300px;
+	--w-xl: 344px;    /* 收 342 / 350 —— 主输入列，影响 36 个控件 */
+
+	/* ---- 过渡：统一时长与曲线 ---- */
+	--ss-t: 140ms cubic-bezier(.2, .6, .3, 1);
+
+	/* 字体沿用固件观感（无衬线 + 等宽读数值），不引入网络字体：路由器不提供，且要能离线渲染 */
+	--ss-sans: "Segoe UI", -apple-system, BlinkMacSystemFont, "PingFang SC",
+	           "Hiragino Sans GB", "Microsoft YaHei", Arial, Helvetica, sans-serif;
+	--ss-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Lucida Console", monospace;
 }
-#proceeding_img_text {
-	position:absolute;
-	z-index:101;
-	font-size:11px;
-	color:#000000;
-	line-height:21px;
-	width: 83%;
+
+/* ============================ 配色统一：就地映射散落的行内颜色 ============================
+   这些颜色写死在 ASP 的行内 style 和 ss-menu.js 生成的 <font color> 里。
+   与其去改十几处标记（会碰到逻辑与生成字符串），不如在样式层收敛到语义色阶。 */
+
+/* 黄 → warn（7 种收 1 种） */
+[style*="#FC0"], [style*="#FFBC00"], [style*="#FFCC33"],
+[style*="#FFCC00"], [style*="#ffcc00"], [style*="#e7bd16"], [style*="#e2c628"],
+font[color="#FC0"], font[color="#ffcc00"], font[color="#FFCC00"], font[color="#FFBC00"] {
+	color: var(--ss-warn) !important;
+}
+/* 绿 → ok（4 种收 1 种） */
+[style*="#a4f072"], [style*="#8dbf8b"], [style*="#33CC33"], [style*="#669900"],
+font[color="#669900"], font[color="#33CC33"] {
+	color: var(--ss-ok) !important;
+}
+/* 红 → crit（3 种收 1 种） */
+[style*="#FF5733"], [style*="#F46"], [style*="#FF0000"],
+font[color="#FF0000"], font[color="#F46"] {
+	color: var(--ss-crit) !important;
+}
+/* 青 → info */
+[style*="#00CCFF"], font[color="#00CCFF"] {
+	color: var(--ss-info) !important;
+}
+/* 紫/洋红/宝蓝 → key（协议名等标识色，3+ 种收 1 种） */
+[style*="#9900CC"], [style*="#f072a5"], [style*="#3c45f6"],
+font[color="#CC0066"], font[color="#9900CC"], font[color="#00F"], font[color="#0000FF"] {
+	color: var(--ss-key) !important;
+}
+/* 灰 */
+font[color="#A0A0A0"] { color: var(--ss-muted) !important; }
+
+/* ================================== 页面骨架 ================================== */
+
+#FormTitle {
+	background: var(--ss-panel) !important;          /* 覆盖 bgcolor 属性 */
+	border: 1px solid var(--ss-hair) !important;
+	border-radius: var(--r-lg);
+	color: var(--ss-ink);
+	font-family: var(--ss-sans);
+	/* 两层极轻阴影 + 顶部内高光：层次靠光影而非硬边 */
+	box-shadow:
+		inset 0 1px 0 var(--ss-hair-in),
+		0 1px 2px rgba(0, 0, 0, .18),
+		0 10px 28px rgba(0, 0, 0, .16);
+	overflow: hidden;                                 /* 让子元素被外层圆角裁切 */
+}
+#FormTitle td[bgcolor="#4D595D"] { background: transparent !important; }
+
+#FormTitle .formfonttitle {
+	font-family: var(--ss-sans);
+	font-size: 21px;
+	font-weight: 600;
+	line-height: 1.3;
+	letter-spacing: .01em;
+	color: var(--ss-ink);
+	text-wrap: balance;
+	padding: 2px 0 0 2px;
+}
+/* 固件用一张 png 当标题分隔线，换成发丝线（对齐更准，缩放不失真） */
+#FormTitle img[src*="line_export"] { display: none; }
+#FormTitle .formfonttitle + div {
+	border-top: 1px solid var(--ss-hair);
+	margin-top: 11px;
+}
+
+.SimpleNote {
+	padding: 11px 13px;
+	font-size: 12.5px;
+	line-height: 1.75;
+	color: var(--ss-muted);
+	background: rgba(0, 0, 0, .10);
+	border: 1px solid var(--ss-hair-soft);
+	border-radius: var(--r-md);
+	margin: 10px 2px;
+}
+.SimpleNote a, #FormTitle a { color: var(--ss-accent-hi); text-decoration: none; }
+.SimpleNote a:hover, #FormTitle a:hover { color: var(--ss-accent); text-decoration: underline; }
+#FormTitle a em, #FormTitle a u { font-style: normal; text-decoration: none; }
+
+/* ================================== 设置表格 ==================================
+   保留表格结构，只把"格线牢笼"读成"标签 / 控件"清单：行间一条发丝线。 */
+
+.FormTable, .FormTable1, .FormTitle_chrome56, .FormTitle_firefox {
+	background: transparent !important;
+	border: none !important;
+	border-collapse: separate !important;
+	border-spacing: 0 !important;
+	font-family: var(--ss-sans) !important;
+	font-size: 13px;
+	color: var(--ss-ink);
+	width: 100%;
+}
+
+/* 分组表头 */
+.FormTable thead td, .FormTable1 thead td,
+.FormTitle_chrome56 thead, .FormTitle_firefox thead {
+	background: var(--ss-head) !important;
+	color: var(--ss-ink-2) !important;
+	font-family: var(--ss-sans) !important;
+	font-size: 11.5px !important;
+	font-weight: 600 !important;
+	letter-spacing: .08em;
+	text-transform: uppercase;
+	text-align: left !important;
+	padding: 9px 13px !important;
+	border: none !important;
+	/* 分组头下缘用固件自己的 bordercolor 收一条线：它是这套配色里原生的"定位线"，
+	   比再加一条白色发丝线更像固件本身的东西。 */
+	border-bottom: 1px solid var(--ss-edge) !important;
+	box-shadow: inset 0 1px 0 var(--ss-hair-in);
+}
+/* 分组表头的圆角：只圆上面两角，且半径 = 面板半径 - 内边距，视觉上与外层同心 */
+.FormTable thead tr:first-child td:first-child,
+.FormTable1 thead tr:first-child td:first-child { border-top-left-radius: var(--r-md); }
+.FormTable thead tr:first-child td:last-child,
+.FormTable1 thead tr:first-child td:last-child { border-top-right-radius: var(--r-md); }
+
+/* 标签列 */
+.FormTable th, .FormTable1 th {
+	background: transparent !important;
+	color: var(--ss-ink-2) !important;
+	font-family: var(--ss-sans) !important;
+	font-weight: 500 !important;
+	font-size: 13px !important;
+	text-align: left !important;
+	vertical-align: middle;
+	padding: var(--sp-2) var(--sp-4) !important;
+	border: none !important;
+	border-bottom: 1px solid var(--ss-hair-soft) !important;
+	line-height: 1.6;
+	white-space: normal;
+}
+/* 控件列 —— 与标签列用同一组内边距，两列的垂直节奏才对得上 */
+.FormTable td, .FormTable1 td {
+	background: transparent !important;
+	color: var(--ss-ink) !important;
+	text-align: left !important;
+	vertical-align: middle;
+	padding: var(--sp-2) var(--sp-4) !important;
+	border: none !important;
+	border-bottom: 1px solid var(--ss-hair-soft) !important;
+	line-height: 1.65;
+	white-space: normal;
+}
+/* 每张表最后一行不留悬空的线 */
+.FormTable tr:last-child th, .FormTable tr:last-child td,
+.FormTable1 tr:last-child td { border-bottom: none !important; }
+.FormTable tr:hover th, .FormTable tr:hover td {
+	background: rgba(255, 255, 255, .022) !important;
+	transition: background var(--ss-t);
+}
+
+/* 说明文字里的强调：i/em/b 归入语义色阶 */
+.FormTitle_chrome56 i, .FormTitle_firefox i, #FormTitle i { color: var(--ss-warn); font-style: normal; }
+.FormTitle_chrome56 em, .FormTitle_firefox em { color: var(--ss-info); font-style: normal; }
+.FormTitle_chrome56 b, .FormTitle_firefox b { color: var(--ss-ok); font-weight: 500; font-style: normal; }
+
+.hintstyle, a.hintstyle {
+	color: var(--ss-ink-2) !important;
+	border-bottom: 1px dotted var(--ss-hair);
+	text-decoration: none !important;
+	cursor: help;
+	transition: color var(--ss-t), border-color var(--ss-t);
+}
+.hintstyle:hover { color: var(--ss-accent-hi) !important; border-bottom-color: var(--ss-accent); }
+
+/* ==================================== 控件 ==================================== */
+
+.input_option, .input_ss_table, .input_option_2,
+#FormTitle input[type="text"], #FormTitle input[type="password"], #FormTitle select {
+	background: var(--ss-ctl) !important;
+	background-image: none !important;
+	border: 1px solid var(--ss-hair) !important;
+	border-radius: var(--r-sm) !important;
+	color: var(--ss-ink) !important;
+	font-family: var(--ss-sans) !important;
+	font-size: 13px !important;
+	height: var(--ss-ctl-h) !important;
+	padding: 0 9px !important;
+	line-height: calc(var(--ss-ctl-h) - 2px);
+	box-shadow: inset 0 1px 0 rgba(255, 255, 255, .04);
+	transition: background var(--ss-t), border-color var(--ss-t), box-shadow var(--ss-t);
+}
+/* 端口/IP/密钥这类要对齐读的值用等宽 + 等宽数字 */
+#ss_basic_port, #ss_basic_server, #ss_basic_udp_sync_game_port,
+#ss_basic_password, #ss_basic_v2ray_uuid,
+.input_ss_table[id*="port"], .input_ss_table[id*="_ip"], .input_ss_table[id*="dns"] {
+	font-family: var(--ss-mono) !important;
+	font-variant-numeric: tabular-nums;
+	letter-spacing: .01em;
+}
+.input_option:hover, .input_ss_table:hover,
+#FormTitle input[type="text"]:hover { background: var(--ss-ctl-hi) !important; }
+.input_option:focus, .input_ss_table:focus, #FormTitle select:focus,
+#FormTitle input[type="text"]:focus, #FormTitle textarea:focus {
+	outline: none !important;
+	border-color: var(--ss-accent) !important;
+	box-shadow: 0 0 0 3px var(--ss-accent-dim) !important;
+}
+/* 键盘可达性：固件把 button 的 outline 关掉了，补回可见焦点 */
+#FormTitle input[type="button"]:focus-visible,
+#FormTitle a[type="button"]:focus-visible,
+.ss_btn:focus-visible, .button_gen:focus-visible {
+	outline: 2px solid var(--ss-accent) !important;
+	outline-offset: 2px;
+}
+#FormTitle select option { background: var(--ss-ctl); color: var(--ss-ink); }
+
+/* 多行输入：行内 style 写死了配色，只能 !important */
+#FormTitle textarea {
+	background: var(--ss-deep) !important;
+	color: var(--ss-ink-2) !important;
+	border: 1px solid var(--ss-hair) !important;
+	border-radius: var(--r-md) !important;
+	font-family: var(--ss-mono) !important;
+	font-size: 12px !important;
+	line-height: 1.7 !important;
+	padding: 10px 12px !important;
+	box-shadow: inset 0 1px 3px rgba(0, 0, 0, .18);
+	tab-size: 4;
+}
+
+/* ========================= 节奏归一：宽度阶梯 =========================
+   审计（review_archive/rhythm_audit.py）实测：行内 style 里共 32 种不同宽度，
+   其中真正伤观感的是"差一点点"的近邻值 —— 它们让同一列的右边缘参差，
+   读起来像没对齐，比明显不同的宽度更糟：
+
+     342px ×19  与  350px ×17   相差  8px   ← 主输入列，共 36 个控件
+     160px ×10  与  164px ×17   相差  4px   ← 次输入列，共 27 个控件
+     60/61/65/66/70px            相差 ≤10px  ← 端口等短数值列
+
+   这些值写死在 ASP 行内 style 中（部分还由 JS 拼出），改标记要动几十处且会碰到逻辑。
+   与收敛颜色同一套办法：在样式层用属性选择器就地归一，不动任何标记。
+   只归并近邻值；120~200 那些一次性宽度保持原样 —— 它们是按内容选的，强行拉齐反而错。 */
+[style*="width:342px"], [style*="width:350px"] { width: var(--w-xl) !important; }
+[style*="width:300px"]                         { width: var(--w-lg) !important; }
+[style*="width:160px"], [style*="width:164px"] { width: var(--w-md) !important; }
+[style*="width:86px"],  [style*="width:100px"] { width: var(--w-sm) !important; }
+[style*="width:60px"],  [style*="width:61px"],
+[style*="width:65px"],  [style*="width:66px"],
+[style*="width:70px"]                          { width: var(--w-xs) !important; }
+
+/* 行内 margin 也有两种写法（空格版 ×49、Tab 版 ×5），归一成一个值，
+   否则同一列控件的左起点会差 2px —— 同样是"近似而不相等"。 */
+[style*="margin:0px 0px 0px 2px"],
+[style*="margin:0px	0px	0px	2px"] { margin: 0 0 0 var(--sp-1) !important; }
+
+/* ========================= 节奏归一：控件高度对齐 =========================
+   同一行里常见「输入框 + 按钮」并排（如 服务器地址 + 测试、节点 + 应用）。
+   按钮此前只有 padding 撑高度，与输入框的 29px 差 1~3px，肩线对不齐。
+   统一到 --ss-ctl-h，并用 vertical-align:middle 让两者共用同一条中线。 */
+.ss_btn, .button_gen, #FormTitle input[type="button"] {
+	height: var(--ss-ctl-h) !important;
+	line-height: 1 !important;
+	padding-top: 0 !important;
+	padding-bottom: 0 !important;
+	vertical-align: middle;
+	box-sizing: border-box;
+}
+.input_option, .input_ss_table, .input_option_2,
+#FormTitle input[type="text"], #FormTitle input[type="password"], #FormTitle select {
+	vertical-align: middle;
+	box-sizing: border-box;
+}
+
+/* ========================= 复选框 =========================
+   审计发现 14 个 input[type=checkbox] 完全没有样式，是浏览器默认渲染 ——
+   尺寸约 13px、基线与旁边 29px 的控件对不上，视觉上"浮"在行里。
+   注意必须排除主开关：它是 class="switch" + style="display:none"，
+   由固件的 jquery.iphone-switch.js 接管渲染，这里碰它会把开关弄坏。 */
+#FormTitle input[type="checkbox"]:not(.switch) {
+	appearance: auto;
+	accent-color: var(--ss-accent);       /* 选中态跟随强调色，无需自绘 */
+	width: 15px;
+	height: 15px;
+	margin: 0 var(--sp-1) 0 0;
+	vertical-align: middle;
+	cursor: pointer;
+}
+/* 复选框后面紧跟的说明文字：与框共用中线，并留出一个字距 */
+#FormTitle input[type="checkbox"]:not(.switch) + label,
+#FormTitle input[type="checkbox"]:not(.switch) + span {
+	vertical-align: middle;
+	cursor: pointer;
+}
+
+/* ==================================== 按钮 ====================================
+   固件原本有 6 套互不相同的渐变，这里统一成一套配方。 */
+
+.ss_btn, #update_logo, #update_now {
+	display: inline-block;
+	background: linear-gradient(to bottom, var(--ss-accent-hi) 0%, var(--ss-accent) 100%) !important;
+	border: 1px solid rgba(0, 0, 0, .22) !important;
+	border-radius: var(--r-sm) !important;
+	color: var(--ss-accent-ink) !important;
+	font-family: var(--ss-sans) !important;
+	font-size: 12.5px !important;
+	font-weight: 600 !important;
+	letter-spacing: .01em;
+	padding: 6px 14px !important;
+	width: auto !important;                      /* 固件写死 14%/20%，按内容走更稳 */
+	text-align: center;
+	text-decoration: none !important;
+	cursor: pointer;
+	box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), 0 1px 2px var(--ss-shade);
+	transition: filter var(--ss-t), transform var(--ss-t), box-shadow var(--ss-t);
+}
+.ss_btn:hover, #update_logo:hover, #update_now:hover {
+	filter: brightness(1.09);
+	width: auto !important;
+	color: var(--ss-accent-ink) !important;
+}
+.ss_btn:active, #update_logo:active, #update_now:active {
+	transform: translateY(1px);
+	box-shadow: inset 0 1px 2px rgba(0, 0, 0, .22);
+}
+
+/* 次级按钮：描边式，不与主操作抢注意力 */
+.button_gen {
+	background: rgba(255, 255, 255, .05) !important;
+	border: 1px solid var(--ss-hair) !important;
+	border-radius: var(--r-sm) !important;
+	color: var(--ss-ink-2) !important;
+	font-family: var(--ss-sans) !important;
+	font-size: 12.5px !important;
+	padding: 6px 14px !important;
+	cursor: pointer;
+	transition: border-color var(--ss-t), color var(--ss-t), background var(--ss-t);
+}
+.button_gen:hover {
+	background: rgba(255, 255, 255, .085) !important;
+	border-color: var(--ss-accent) !important;
+	color: var(--ss-ink) !important;
+}
+
+/* ================================== 标签页 ==================================
+   固件是渐变"肩章"，改成一排药丸；当前项用统一强调色。 */
+
+.show-btn1, .show-btn1_1, .show-btn2, .show-btn3, .show-btn4,
+.show-btn5, .show-btn6, .show-btn7,
+.sub-btn1, .sub-btn2, .sub-btn3 {
+	background: rgba(0, 0, 0, .13) !important;
+	border: 1px solid var(--ss-hair-soft) !important;
+	border-radius: var(--r-pill) !important;
+	color: var(--ss-muted) !important;
+	font-family: var(--ss-sans) !important;
+	font-size: 12.5px !important;
+	font-weight: 500 !important;
+	padding: 7px 15px !important;
+	width: auto !important;
+	min-width: 82px;
+	margin: 0 3px 6px 0 !important;
+	cursor: pointer;
+	transition: background var(--ss-t), color var(--ss-t), border-color var(--ss-t);
+}
+.show-btn1:hover, .show-btn1_1:hover, .show-btn2:hover, .show-btn3:hover,
+.show-btn4:hover, .show-btn5:hover, .show-btn6:hover, .show-btn7:hover,
+.sub-btn1:hover, .sub-btn2:hover, .sub-btn3:hover {
+	background: rgba(255, 255, 255, .07) !important;
+	border-color: var(--ss-hair) !important;
+	color: var(--ss-ink) !important;
+}
+.active, .active2 {
+	background: linear-gradient(to bottom, var(--ss-accent-hi) 0%, var(--ss-accent) 100%) !important;
+	border-color: rgba(0, 0, 0, .22) !important;
+	color: var(--ss-accent-ink) !important;
+	font-weight: 600 !important;
+	box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), 0 1px 2px var(--ss-shade);
+}
+
+/* ============================ 运行状态条 ============================
+   状态只用文字和圆点表达，不再叠加胶囊背景。 */
+
+#ss_status1 .FormTable th { width: 34%; }
+#ss_state2, #ss_state3, #ss_state4, #ss_state5 {
+	display: inline-block;
+	font-family: var(--ss-sans);
+	font-size: 12.5px;
+	line-height: 1.65;
+	color: var(--ss-ink-2);
+	font-variant-numeric: tabular-nums;
+}
+
+.ss-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 0;
+	margin-left: 7px;
+	border-radius: 0;
+	font-size: 11.5px;
+	font-weight: 600;
+	letter-spacing: 0;
+	line-height: inherit;
+	white-space: nowrap;
+	border: 0;
+	vertical-align: 1px;
+}
+.ss-chip::before {
+	content: "";
+	width: 6px;
+	height: 6px;
+	border-radius: var(--r-pill);
+	background: currentColor;
+	flex: 0 0 auto;
+}
+/* 五种芯片都有真实输出方：ok / crit / idle / skip 来自 UDP 与 DNS 档位与实测，
+   warn 用于「7913 解析器无国内仲裁」这类"能用但有已知代价"的状态 ——
+   它既不是故障（DNS 照常工作）也不该是绿灯（隧道抖动时会卡顿），正好落在 warn。 */
+.ss-chip-ok   { color: var(--ss-ok); }
+.ss-chip-warn { color: var(--ss-warn); }
+.ss-chip-crit { color: var(--ss-crit); }
+.ss-chip-idle { color: var(--ss-idle); }
+/* "跳过/不适用"：空心点。它既不是绿灯也不是故障，必须与 ok 在视觉上分开，
+   否则用户会以为检测通过了。 */
+.ss-chip-skip { color: var(--ss-muted); }
+.ss-chip-skip::before { background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; }
+
+/* 芯片后的补充说明：只在需要用户处理时出现 */
+.ss-chip-note { margin-left: 8px; color: var(--ss-muted); font-size: 12px; }
+.ss-chip-note-crit { color: var(--ss-crit); }
+
+/* 状态栏的 5 行（运行模式 / 国外 / 国内 / UDP代理 / DNS劫持）都塞在同一个 td 里，
+   靠 <br/> 断行，且每段外面各包一个 .hintstyle 的 <a>。原样渲染会出现三条点线下划线，
+   在这个最常被看的区域显得很吵。这里把点线去掉，改成"整行悬停才提示可点"，
+   并给每行统一行高与间距，让五行读起来是一份清单而不是一堆折行文字。 */
+#ss_status1 td > div > a.hintstyle,
+#ss_status1 td a.hintstyle {
+	display: block;
+	border-bottom: none !important;
+	color: inherit !important;
+	padding: 1px 0;
+}
+#ss_status1 td a.hintstyle:hover { color: inherit !important; }
+#ss_status1 td a.hintstyle:hover span[id^="ss_state"] { color: var(--ss-accent-hi); }
+#ss_status1 td br { line-height: 0; }
+#ss_state2, #ss_state3, #ss_state4, #ss_state5 { padding: 1px 0; }
+
+
+/* 分组表头（.ss-group）：账号设置那页有 61 行设置且零分组，平铺着靠肉眼扫。
+   这里用普通 <tr> + class 而不是 <thead> —— 一张表里多个 <thead> 不合法，
+   而且用 tr 完全不影响现有行与 update_visibility 里那一堆 showhide 的引用。
+   样式与 .FormTable thead td 保持一致，让两种分组看起来是同一个东西。
+   现只保留「节点」一个分组，"空组自动隐藏"那套逻辑已连同 update_group_headers() 一起删除
+   （它会把仅存的这个表头也误判成空组，见 ASP 里的说明）。 */
+.FormTable tr.ss-group td,
+.FormTable1 tr.ss-group td {
+	background: var(--ss-head) !important;
+	color: var(--ss-ink-2) !important;
+	font-family: var(--ss-sans) !important;
+	font-size: 11.5px !important;
+	font-weight: 600 !important;
+	letter-spacing: .08em;
+	text-transform: uppercase;
+	text-align: left !important;
+	padding: 9px 13px !important;
+	border: none !important;
+	border-bottom: 1px solid var(--ss-edge) !important;
+	box-shadow: inset 0 1px 0 var(--ss-hair-in);
+}
+/* 分组之间留出呼吸，但第一组紧贴上方内容不留空 */
+.FormTable tr.ss-group + tr th,
+.FormTable tr.ss-group + tr td { padding-top: 12px !important; }
+
+
+/* 子选项行（.ss-sub）：原来靠在标签里塞 "&nbsp;&nbsp;* " 手搓缩进来表示
+   "这是【传输协议(network)】的子选项"。那是把真实结构编码成了空格 ——
+   字体一变就对不齐，也没法统一调整。现在把前缀去掉，缩进与层级关系交给样式：
+   左侧一条细导轨 + 缩进，读起来就是"隶属于上一行"。 */
+.FormTable tr.ss-sub th {
+	padding-left: 30px !important;
+	position: relative;
+	color: var(--ss-muted) !important;
+	font-weight: 400 !important;
+}
+.FormTable tr.ss-sub th::before {
+	content: "";
+	position: absolute;
+	left: 15px;
+	top: 0;
+	bottom: 0;
+	width: 1px;
+	background: var(--ss-hair);
+}
+/* 连续子行之间不再重复画行分隔线，让一组子选项看起来是一块 */
+.FormTable tr.ss-sub + tr.ss-sub th,
+.FormTable tr.ss-sub + tr.ss-sub td { border-top: none !important; }
+
+/* ======================= 帮助浮层（overlib）=======================
+   插件全部的说明文字都活在这里（ss-menu.js 的 openssHint -> overlib），
+   而 overlib 是用行内属性拼表格的老库，不接管的话这块永远是固件原样式 ——
+   最该读得舒服的地方反而最糙。选择器全部落在 #overDiv 内，不影响别处。 */
+#overDiv {
+	border-radius: var(--r-lg) !important;
+	box-shadow: 0 16px 44px rgba(0, 0, 0, .5) !important;
+	overflow: hidden;
+	font-family: var(--ss-sans) !important;
+}
+#overDiv table { border-collapse: separate !important; border-spacing: 0 !important; border: none !important; }
+#overDiv table td {
+	background: var(--ss-panel) !important;      /* 压过 overlib 的 bgcolor 行内属性 */
+	color: var(--ss-ink-2) !important;
+	font-family: var(--ss-sans) !important;
+	font-size: 12.5px !important;
+	line-height: 1.85 !important;
+	border: none !important;
+	padding: 12px 16px !important;
+}
+/* 标题行：overlib 把 CAPTION 放在第一层表格的首个 td 里，字号比正文小、常带 b/font */
+#overDiv table table td:first-child b,
+#overDiv table td b:first-child {
+	color: var(--ss-ink) !important;
+	font-weight: 600;
+}
+#overDiv table tr:first-child > td {
+	background: var(--ss-head) !important;
+	color: var(--ss-ink) !important;
+	font-weight: 600;
+	padding: 11px 16px !important;
+	border-bottom: 1px solid var(--ss-edge) !important;
+	box-shadow: inset 0 1px 0 var(--ss-hair-in);
+}
+/* 正文里的强调统一到语义色阶（overlib 内容是 ss-menu.js 拼的 HTML 字符串） */
+#overDiv b   { color: var(--ss-ink); font-weight: 600; }
+#overDiv i   { color: var(--ss-warn); font-style: normal; }
+#overDiv em  { color: var(--ss-info); font-style: normal; }
+#overDiv u   { text-decoration: none; border-bottom: 1px solid var(--ss-hair); }
+#overDiv a   { color: var(--ss-accent-hi) !important; text-decoration: none; }
+#overDiv a:hover { color: var(--ss-accent) !important; text-decoration: underline; }
+
+/* ============================== 弹窗 / 日志区 ============================== */
+
+.contentM_qis, .content_status {
+	background: var(--ss-panel) !important;
+	border: 1px solid var(--ss-hair) !important;
+	border-radius: var(--r-lg) !important;
+	box-shadow:
+		inset 0 1px 0 var(--ss-hair-in),
+		0 16px 44px rgba(0, 0, 0, .45) !important;
+	color: var(--ss-ink);
+	overflow: hidden;
+}
+.user_title {
+	font-family: var(--ss-sans);
+	font-size: 15px;
+	font-weight: 600;
+	color: var(--ss-ink) !important;
+	text-align: left;
+	padding: 14px 17px 11px;
+	border-bottom: 1px solid var(--ss-hair);
+	background: var(--ss-head);
+	box-shadow: inset 0 1px 0 var(--ss-hair-in);
+}
+#proc_status, #log_content1, #log_content3 {
+	background: var(--ss-deep) !important;
+	color: var(--ss-ink-2) !important;
+	font-family: var(--ss-mono) !important;
+	font-size: 11.5px !important;
+	line-height: 1.75 !important;
+	border: 1px solid var(--ss-hair) !important;
+	border-radius: var(--r-md) !important;
+	padding: 12px !important;
+	box-shadow: inset 0 1px 3px rgba(0, 0, 0, .2);
+}
+
+/* 进度条 */
+.Bar_container {
+	width: 100%;
+	height: 6px;
+	border: none;
+	border-radius: var(--r-pill);
+	background: rgba(0, 0, 0, .26);
+	box-shadow: inset 0 1px 2px rgba(0, 0, 0, .22);
+	overflow: hidden;
+	margin-top: 13px;
 }
 #proceeding_img {
-	height:21px;
-	background:#C0D1D3 url(/images/ss_proceding.gif);
+	height: 6px;
+	border-radius: var(--r-pill);
+	background: linear-gradient(to right, var(--ss-accent) 0%, var(--ss-accent-hi) 100%) !important;
+	background-image: linear-gradient(to right, var(--ss-accent) 0%, var(--ss-accent-hi) 100%) !important;
+	transition: width 260ms cubic-bezier(.2, .6, .3, 1);
 }
-#ss_node_edit {
-	background: url(/images/New_ui/ss_list.png);
-	background-position: 0px 0px;
-	width: 30px;
-	height: 35px;
-}
-#update_logo, #update_now{
-	border: 1px solid #222;
-	background: linear-gradient(to bottom, #76a0ba  0%, #688292 100%); /* W3C */
-	font-size:10pt;
-	color: #fff;
-	padding: 5px 5px;
-	border-radius: 5px 5px 5px 5px;
-	width:20%;
+#proceeding_img_text {
+	position: static;
+	display: block;
+	width: 100%;
+	color: var(--ss-muted);
+	font-family: var(--ss-sans);
+	font-size: 12px;
+	line-height: 1.85;
 }
 
-#update_logo:hover, #update_now:hover {
-	border: 1px solid #222;
-	background: linear-gradient(to bottom, #27c9c9  0%, #279fd9 100%); /* W3C */
-	font-size:10pt;
-	color: #fff;
-	padding: 5px 5px;
-	border-radius: 5px 5px 5px 5px;
-	width:20%;
+/* ================================ 节点列表 ================================
+   这张表是全页最需要"扫"而不是"读"的地方：一屏要看清十几个节点的名称、
+   服务器、端口、模式。设置表那套 9px 垂直内边距在这里偏松 —— 行数一多就要滚动，
+   而滚动会打断比较。这里单独收一档密度：垂直 6px，行高压到 1.45。
+   水平内边距保持 13px 不动，跨表的左对齐不能破。 */
+.FormTable1 td, .FormTable1 th {
+	padding-top: 6px !important;
+	padding-bottom: 6px !important;
+	line-height: 1.45 !important;
 }
-.show-btn1, .show-btn1_1, .show-btn2, .show-btn3, .show-btn4, .show-btn5, .show-btn6, .show-btn7 {
-	border: 1px solid #222;
-	background: linear-gradient(to bottom, #76a0ba  0%, #688292 100%); /* W3C */
-	background: linear-gradient(to bottom, #919fa4  0%, #67767d 100%); /* W3C */
-	font-size:10pt;
-	color: #fff;
-	padding: 10px 3.75px;
-	border-radius: 5px 5px 0px 0px;
-	width:8.45601%;
+/* 斑马纹靠底色深浅而非格线；行数多时它比分隔线更能帮眼睛跟住一行 */
+.FormTable1 td { font-family: var(--ss-sans) !important; }
+.FormTable1 td:nth-child(n+3) { font-family: var(--ss-mono) !important; font-variant-numeric: tabular-nums; }
+.FormTable1 tbody tr:nth-child(even) td { background: rgba(255, 255, 255, .024) !important; }
+/* 表格密度收紧后，行内控件也跟着小一档，否则控件会把行重新撑开、密度白收 */
+.FormTable1 .ss_btn, .FormTable1 .button_gen,
+.FormTable1 input[type="button"] {
+	height: 24px !important;
+	padding-left: 10px !important;
+	padding-right: 10px !important;
+	font-size: 12px !important;
 }
-.active {
-	background: #2f3a3e;
-	background: linear-gradient(to bottom, #a5b56f  0%, #677835 100%); /* W3C */
-	background: linear-gradient(to bottom, #61b5de  0%, #279fd9 100%); /* W3C */
+#ss_node_edit { border-radius: var(--r-sm); }
+
+.cloud_main_radius h2 { border-bottom: 1px solid var(--ss-hair); font-weight: 600; }
+.cloud_main_radius h3 { font-size: 13px; color: var(--ss-ink); font-weight: 500; }
+.cloud_main_radius h4 { font-size: 13px; color: var(--ss-warn); font-weight: 500; }
+.cloud_main_radius h5 { color: var(--ss-ink-2); font-weight: 400; }
+
+/* 宽内容不许把页面撑出横向滚动条 */
+#FormTitle .ss-scroll-x { overflow-x: auto; }
+
+@media (prefers-reduced-motion: reduce) {
+	.ss_btn, .input_option, .input_ss_table, #proceeding_img, .hintstyle,
+	.FormTable tr:hover th, .FormTable tr:hover td,
+	.show-btn1, .show-btn1_1, .show-btn2, .show-btn3, .show-btn4, .show-btn5,
+	.show-btn6, .show-btn7, .button_gen {
+		transition: none !important;
+	}
 }
-input[type=button]:focus {
+
+/* ======================================================================
+   布局契约 —— 重写样式表时丢掉的功能性声明，全部补回
+   ======================================================================
+   真机事故（5.2.6-beta13）：本文件是【整份重写】的，重写时只保留了上游同名
+   选择器里的装饰性声明（背景/边框/圆角/阴影），把 display/position/top/width
+   这些**功能性**声明丢了。后果不是"不好看"，是坏掉：
+
+     .contentM_qis 失去 display:none + position:absolute
+       → 节点对话框（添加SS配置/添加V2Ray配置/使用模式…）不再隐藏、也不脱离
+         文档流，直接漂在「账号设置」页面里。用户重装两次都以为是浏览器缓存。
+     .content_status 同上 → 「详细状态」弹窗同样会漂。
+     .QISform_wireless th{text-align:left} 整条丢失 → 表单标签对齐全乱。
+     .input_ss_table{width} 丢失 → 输入框宽度失控。
+
+   教训：**样式表里的 display/position/visibility 是行为，不是装饰。**
+   丢掉一条 display:none 等价于删掉一行 JS。
+   防复发：review_archive/css_layout_drift.py 对比上游与当前的同名选择器，
+   列出当前缺失的布局属性；改完样式表必须跑它。
+   ====================================================================== */
+
+/* --- 弹窗：必须默认隐藏且脱离文档流（由 JS fadeIn/fadeOut 控制显隐）--- */
+.contentM_qis {
+	display: none;
+	position: absolute;
+	z-index: 200;
+	top: 240px;
+	margin-left: 50px;
+	width: 650px;
+	height: auto;
+}
+.content_status {
+	display: none;
+	position: absolute;
+	z-index: 210;
+	top: 240px;
+	left: 8px;
+	right: 8px;
+	width: auto;
+	max-width: calc(100% - 16px);
+	height: auto;
+	margin-left: 0 !important;
+	box-sizing: border-box;
+}
+#detail_status #user_tr {
+	width: auto !important;
+	margin: 10px 12px !important;
+	overflow: hidden !important;
+}
+#detail_status #proc_status {
+	display: block;
+	width: 100% !important;
+	max-width: 100%;
+	overflow: auto !important;
+}
+/* 进度条与它的文字：z-index 决定盖在弹窗之上，丢了会被弹窗遮住 */
+.Bar_container      { z-index: 100; }
+#proceeding_img_text { z-index: 101; }
+/* #FormTitle 的两个浏览器变体（ss-menu.js:80/87/93 按 UA 挂上去，是活代码）。
+   margin-top:-100px 是固件把主表单拉到横幅之下的老做法，上游 shadowsocks.css 里也有；
+   重写时丢了它，表单会整体下移 100px。position:relative 是内部绝对定位子元素的参照。
+   （这条是扩了 margin-* 白名单之后才发现的，此前工具查不出来。） */
+.FormTitle_chrome56,
+.FormTitle_firefox {
+	margin-top: -100px;
+	position: relative;
+}
+
+/* --- 弹窗内的表单：标签左对齐是上游行为，丢了会变成居中，各行对不齐 --- */
+.QISform_wireless    { width: 600px; margin-top: 10px; }
+.QISform_wireless th { text-align: left; padding-left: 10px; }
+
+/* --- 节点对话框顶部的协议页签：上游给了固定高度，丢了会随内容跳动 --- */
+.vpnClientTitle_td_click,
+.vpnClientTitle_td_unclick { height: 30px; }
+
+/* --- 关于主界面页签按钮 ---
+   曾在这里加过一条 .show-btn3_1 / .show-btn3_2 的药丸规则，注释写"原先只收了
+   .show-btn3，漏了 _1/_2，于是这两个按钮没被样式接管"。**那个根因是编的**：
+   markup 里实际只有 show-btn1 / 1_1 / 2 / 3 / 4 / 5 / 6 / 7 这 8 个 class，
+   _1/_2 只存在于上游、本分支早已不用，那条规则是死代码，一个像素都改变不了。
+   已删除。真机报的"按钮没对齐"实际在【开关行】：移除「检查并更新」后，
+   同一格里剩下的版本号(margin-left:170px) 与「插件帮助」(270px) 仍是
+   position:absolute + 按旧宽度算出来的硬编码偏移，70px 处还留了个洞。
+   已在 markup 里把这两个 div 收回文档流，不再依赖像素偏移。 */
+
+/* --- 多行输入框：width:99% 写在行内，没有 border-box 就必然溢出到单元格外，
+       表现为"右侧一点间距都不留"（真机问题4）。textarea 此前不在 border-box 名单里。 --- */
+#FormTitle textarea,
+.FormTable textarea,
+.FormTable1 textarea {
+	box-sizing: border-box !important;
+	max-width: 100%;
+}
+
+/* 自定义 dnsmasq 与黑白名单是长列表编辑区，桌面保留适度的右侧留白。 */
+#tablet_2 #ss_dnsmasq,
+#tablet_3 #ss_wan_white_ip,
+#tablet_3 #ss_wan_white_domain,
+#tablet_3 #ss_wan_black_ip,
+#tablet_3 #ss_wan_black_domain {
+	width: 72% !important;
+}
+/* beta5 只收紧用户指定的三个编辑框：宽度不变，高度按当前真机尺寸缩小 25%。 */
+#tablet_2 #ss_dnsmasq {
+	height: 139px;
+}
+#tablet_3 #ss_wan_white_domain,
+#tablet_3 #ss_wan_black_domain {
+	height: 93px;
+}
+
+/* --- 访问控制的「主机ip地址」输入框（真机问题5）---
+   它用的是 .input_15_table，而控件样式名单里只有 .input_option/.input_ss_table，
+   于是这一个框是浏览器默认渲染：高度、边框、字体都和同行其它控件不一样；
+   加上行内 float:left，位置也从基线上掉下来。 */
+.input_15_table {
+	background: var(--ss-ctl) !important;
+	border: 1px solid var(--ss-hair) !important;
+	border-radius: var(--r-sm) !important;
+	color: var(--ss-ink) !important;
+	font-family: var(--ss-mono) !important;
+	font-size: 13px !important;
+	height: var(--ss-ctl-h) !important;
+	padding: 0 9px !important;
+	box-sizing: border-box;
+	vertical-align: middle;
+	float: none !important;   /* 覆盖行内 float:left，回到基线对齐 */
+	width: 158px;
+}
+
+/* ======================================================================
+   状态栏：芯片配色必须能压过固件对 .hintstyle 的规则
+   ======================================================================
+   真机问题8：五行状态整个包在 <a class="hintstyle"> 里，固件对该类有自己的
+   配色规则。本文件的 .ss-chip-* 原先没写 !important，被固件盖掉 ——
+   于是绿/红/灰/空心四种芯片在真机上【全部渲染成黄色】，
+   "异常"和"链路就绪"看起来一模一样，状态栏等于失效。
+   ====================================================================== */
+#ss_state1, #ss_state2, #ss_state3, #ss_state4, #ss_state5 {
+	color: var(--ss-ink) !important;
+}
+/* 固件原始行底是 #475A5F。这里明确回到插件外层的原面板色，避免透明后再次露出灰条。 */
+#ss_status1,
+#ss_status1 .FormTable,
+#ss_status1 .FormTable tr,
+#ss_status1 .FormTable th,
+#ss_status1 .FormTable td,
+#ss_status1 .FormTable tr:hover th,
+#ss_status1 .FormTable tr:hover td {
+	background-color: var(--ss-panel) !important;
+	background-image: none !important;
+}
+/* 固件 form_style.css 会给 .FormTable td span 强塞 #475A5F；状态内容全部是 span。 */
+#ss_status1 .FormTable td span {
+	background-color: transparent !important;
+	background-image: none !important;
+}
+#ss_status1 .ss-chip {
+	background: none !important;
+	border: 0 !important;
+	box-shadow: none !important;
+}
+#ss_status1 .ss-chip-ok   { color: var(--ss-ok)   !important; }
+#ss_status1 .ss-chip-warn { color: var(--ss-warn) !important; }
+#ss_status1 .ss-chip-crit { color: var(--ss-crit) !important; }
+#ss_status1 .ss-chip-idle { color: var(--ss-idle) !important; }
+#ss_status1 .ss-chip-skip { color: var(--ss-muted) !important; }
+.ss-chip-note      { color: var(--ss-muted) !important; }
+.ss-chip-note-crit { color: var(--ss-crit)  !important; }
+.ss-chip-note-warn { color: var(--ss-warn)  !important; }
+
+/* 失败原因太长会把状态行挤成两栏（真机问题8）。改成独占一行的次要说明，
+   缩进对齐到芯片起始处，读起来是"这一行的注解"而不是又一段正文。 */
+.ss-chip-note {
+	display: block;
+	margin: 2px 0 1px 0;
+	padding-left: 2px;
+	font-size: 11.5px;
+	line-height: 1.6;
+	white-space: normal;
+}
+
+/* 两个操作按钮横排，并让按钮组中线对齐「国外连接 / 国内连接」两行的中线。 */
+.ss-status-layout {
+	display: flex;
+	align-items: flex-start;
+	gap: 14px;
+}
+.ss-status-lines { min-width: 0; }
+.ss-status-actions {
+	display: flex;
+	flex: 0 0 auto;
+	flex-direction: row;
+	align-items: center;
+	gap: 5px;
+	padding-top: 8px;
+}
+#ss_status1 .ss-status-actions .ss_btn {
+	height: 25px !important;
+	min-width: 62px;
+	font-size: 11px !important;
+	line-height: 23px !important;
+	letter-spacing: 0;
+	padding: 0 7px !important;
+	white-space: nowrap;
+}
+
+/* 编辑节点的小图标按钮：上游给了固定 30x35，丢了会缩成内容尺寸、把表格行撑歪 */
+#ss_node_edit { width: 30px; height: 35px; }
+
+/* 单行输入的默认宽度。上游是 158.2px，这里取整到 158px；
+   只是【默认值】—— 行内 style 写了宽度的控件依旧按行内的来。 */
+.input_ss_table { width: 158px; }
+
+/* ============ Hysteria2设定：两列 grid ============
+   原先用 <span style="display:inline-block;width:70px"> + <br> 拼伪两栏。
+   固定 70px 只能保证【标签】起点一致，标签后面各行控件宽度不同，
+   "密码/BBR模式/上行/mbps"这些附属文字于是各行各的位置，纵向完全对不齐（真机问题3）。
+   grid 让标签列与控件列真正成列，控件再宽也不影响下一行。 */
+.ss-hy2 {
+	display: block;
+	overflow-x: auto;
+	border-top: 1px solid var(--ss-hair-soft);
+	background-color: var(--ss-panel) !important;
+	background-image: none !important;
+}
+.ss-hy2-row {
+	display: grid;
+	grid-template-columns: 76px minmax(0, 1fr);
+	column-gap: 12px;
+	align-items: center;
+	min-width: 540px;
+	min-height: 41px;
+	padding: 5px 8px;
+	border-bottom: 1px solid var(--ss-hair-soft);
+	box-sizing: border-box;
+	background-color: var(--ss-panel) !important;
+	background-image: none !important;
+	line-height: 1.6;
+}
+.ss-hy2-row:hover {
+	background-color: var(--ss-panel) !important;
+	background-image: none !important;
+}
+/* 同一条固件 span 规则也会把 HY2 的两列铺成灰条，并把标题强制染黄。 */
+#tablet_2 .FormTable td .ss-hy2 span {
+	background-color: transparent !important;
+	background-image: none !important;
+}
+#tablet_2 .FormTable td .ss-hy2 .ss-hy2-k,
+#tablet_2 .FormTable td .ss-hy2 .ss-hy2-v,
+#tablet_2 .FormTable td .ss-hy2 .ss-hy2-sub {
+	color: var(--ss-ink-2) !important;
+}
+.ss-hy2-k {
+	color: var(--ss-ink-2);
+	font-size: 12.5px;
+	text-align: left;
+	white-space: nowrap;
+}
+.ss-hy2-v {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 7px;
+	min-width: 0;
+}
+.ss-hy2-nowrap,
+.ss-hy2-switch-row {
+	flex-wrap: nowrap;
+}
+.ss-hy2-switch {
+	width: 120px !important;
+	flex: 0 0 120px;
+}
+.ss-hy2-switch-note { white-space: nowrap; }
+/* 附属文字（密码 / BBR模式 / 上行 / mbps）统一成次要色，别和控件抢视觉 */
+.ss-hy2-v label {
+	color: var(--ss-ink-2);
+	font-size: 12.5px;
+	font-weight: 400;
+	white-space: nowrap;
+}
+.ss-hy2-v label[for] { cursor: pointer; }
+.ss-hy2-v .ss-hy2-gap { margin-left: 9px; }
+/* 全局设定这一列的下拉框：左右边缘都要成列（真机问题3 后半）。
+   上一版只把「同步UDP与TCP」和「DNS劫持」两个拉成同宽，但这两者在页面上隔着
+   一整行 select 和一个 rows=12 的 textarea，根本不会同屏 —— 等于修了个用户没提的位置。
+   而它们真正的上下邻居（国内DNS/国外DNS/节点域名解析DNS）既没有行内 width 也没有
+   行内 margin，于是那两个带 margin:0 0 0 2px 的反而比邻居右移，比不修更明显。
+   现在：行内 width/margin 已从 markup 移除，这里给同一列的 5 个框统一宽度。 */
+#tablet_2 #ss_dns_china,
+#tablet_2 #ss_basic_dns_hijack,
+#tablet_2 #ss_basic_server_resolver,
+#tablet_2 #ss_basic_udp_sync {
+	width: 300px;
+	max-width: 100%;
+}
+#tablet_2 #ss_foreign_dns {
+	width: 200px;
+	max-width: 200px;
+	flex: 0 0 200px;
+}
+#tablet_2 .ss-foreign-dns-controls {
+	display: flex;
+	align-items: center;
+	flex-wrap: nowrap;
+	gap: 7px;
+	max-width: 100%;
+}
+#tablet_2 .ss-foreign-dns-controls .input_ss_table {
+	flex: 0 1 160px;
+	min-width: 0;
+	width: 160px;
+}
+#tablet_2 #ss_foreign_dns_note {
+	display: block;
+	margin-top: 4px;
+}
+#tablet_6 #ss_basic_dnsmasq_fastlookup {
+	width: 370px;
+	max-width: calc(100% - var(--sp-1));
+}
+/* hy2 块内的三个下拉框同理：行内 155/175/140px 三个值，右边缘参差。
+   它们在 grid 的控件列里，统一宽度即可成列。 */
+#ss_basic_hy2_obfs_type,
+#ss_basic_hy2_congestion_type {
+	width: 190px !important;
+}
+#ss_basic_hy2_bbr_profile { width: 150px !important; }
+/* 条件显示的子项（混淆密码 / BBR模式）：原先是无 class 的裸 span，
+   showhide 后成为 flex item，其内部 label 与控件之间不吃 .ss-hy2-v 的 gap，
+   间距只剩空白符的约 4px，与「上行/下行」的 7px 不一致。 */
+.ss-hy2-sub {
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+}
+
+/* 访问控制的主机 IP 是一个输入+设备列表触发器，作为一个控件组参与表格对齐。 */
+#ACL_table .ss-acl-ip-cell {
+	position: relative;
+	overflow: visible;
+}
+#ACL_table .ss-acl-ip-control {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	width: 174px;
+	max-width: 100%;
+}
+#ACL_table #ss_acl_ip {
+	flex: 1 1 auto;
+	min-width: 0;
+	width: auto;
+}
+#ACL_table .ss-acl-ip-trigger {
+	display: block;
+	flex: 0 0 var(--ss-ctl-h);
+	width: var(--ss-ctl-h);
+	height: var(--ss-ctl-h);
+	padding: 0;
+	border: 1px solid var(--ss-hair);
+	border-radius: var(--r-sm);
+	background: var(--ss-ctl);
+	box-sizing: border-box;
+	cursor: pointer;
+	transition: background var(--ss-t), border-color var(--ss-t);
+}
+#ACL_table .ss-acl-ip-trigger:hover,
+#ACL_table .ss-acl-ip-trigger:focus-within {
+	background: var(--ss-ctl-hi);
+	border-color: var(--ss-edge);
 	outline: none;
 }
-
-.contentM_qis {
-	position: absolute;
-	-webkit-border-radius: 5px;
-	-moz-border-radius: 5px;
-	border-radius: 5px;
-	z-index: 200;
-	background-color:#2B373B;
-	margin-left: 50px;
-	top: 240px;
-	width:650px;
-	return height:auto;
-	box-shadow: 3px 3px 10px #000;
-	display:none;
-}
-
-.content_status {
-	position: absolute;
-	-webkit-border-radius: 5px;
-	-moz-border-radius: 5px;
-	border-radius:10px;
-	z-index: 10;
-	background-color:#2B373B;
-	margin-left: -215px;
-	top: 240px;
-	width:980px;
-	return height:auto;
-	box-shadow: 3px 3px 10px #000;
-	background: rgba(0,0,0,0.85);
-	display:none;
-}
-.user_title{
-	text-align:center;
-	font-size:18px;
-	color:#99FF00;
-	padding:10px;
-	font-weight:bold;
-}
-.QISform_wireless {
-	width:600px;
-	font-size:12px;
-	color:#FFFFFF;
-	margin-top:10px;
-	*margin-left:10px;
-}
-.QISform_wireless thead {
-	font-size:15px;
-	line-height:20px;
-	color:#FFFFFF;
-}
-.QISform_wireless th {
-	padding-left:10px;
-	*padding-left:30px;
-	font-size:12px;
-	font-weight:bolder;
-	color: #FFFFFF;
-	text-align:left;
-}
-.vpnClientTitle_td_unclick {
-	background-color: #000;
-	height: 30px;
+#ACL_table .ss-acl-ip-arrow {
+	display: block;
+	width: 100%;
+	height: 100%;
+	padding: 7px;
+	box-sizing: border-box;
+	object-fit: contain;
+	filter: grayscale(1) brightness(1.7);
 	cursor: pointer;
-	border: 1px solid #222;
 }
-.vpnClientTitle_td_click {
-	background-color: #4D595D;
-	height: 30px;
-	cursor: pointer;
-	border: 1px solid #222;
+#ACL_table #ClientList_Block {
+	position: absolute !important;
+	left: var(--sp-4);
+	top: 100%;
+	z-index: 1000;
+	margin: 0 !important;
+	min-width: 220px;
+	max-width: 320px;
 }
+#tablet_5 #ACL_table { min-width: 720px; }
 
-.FormTable1{
-	table-layout:fixed;
-	width:749.71px;
-	font-size:12px;
-	font-family: Arial, Helvetica, sans-serif;
-	border: 1px solid #000000;
-	border-collapse: collapse;
+@media (max-width: 600px) {
+	#tablet_5 { overflow-x: auto; }
+	#tablet_2 #ss_dns_china,
+	#tablet_2 #ss_basic_dns_hijack,
+	#tablet_2 #ss_basic_server_resolver,
+	#tablet_2 #ss_basic_udp_sync {
+		max-width: calc(100vw - 144px);
+	}
+	#tablet_2 .ss-foreign-dns-controls,
+	#tablet_2 .ss-hy2 {
+		width: calc(100vw - 144px);
+		max-width: calc(100vw - 144px);
+		min-width: 0;
+		box-sizing: border-box;
+	}
+	#tablet_2 #ss_foreign_dns {
+		flex: 0 1 200px;
+		min-width: 0;
+	}
+	#tablet_2 .ss-foreign-dns-controls .input_ss_table {
+		flex: 1 1 100px;
+		width: auto;
+	}
+	#tablet_2 #ss_dnsmasq,
+	#tablet_3 #ss_wan_white_ip,
+	#tablet_3 #ss_wan_white_domain,
+	#tablet_3 #ss_wan_black_ip,
+	#tablet_3 #ss_wan_black_domain {
+		width: 100% !important;
+	}
 }
-.FormTable1 th{
-	table-layout:fixed;
-	overflow:hidden;
-	font-family: Arial, Helvetica, sans-serif;
-	background-color:#1F2D35;
-	color:#FFFFFF	;	/*Viz add*/
-	font-weight:normal;
-	text-align: center;
-	height: 30px;
-	font-size:12px;
-	padding-left: 5px;
-	border: 1px solid #222;
-	border-collapse: collapse;
-	background:#2F3A3E;
-}
-
-.FormTable1 td{
-	table-layout:fixed;
-	overflow:hidden;
-	height: 30px;
-	padding-left: 5px;
-	background-color:#475A5F;
-	text-align: center;
-	border: 1px solid #222;
-	border-collapse: collapse;
-	white-space:nowrap;
-	text-overflow:ellipsis;
-	/*
-	word-wrap:break-word;
-	*/
-}
-
-.SimpleNote { padding:5px 10px;}
-
-#iframe1{
-   font-family: Lucida Console;
-   color: red;
-}
-
-#log_content3, #loading_block2, #log_content1 {line-height:1.5}
-.input_option{
-	height:25px;
-	background-color:#576D73;
-	border-top-width:1px; 
-	border-bottom-width:1px; 
-	border-color:#888;	
-	color:#FFFFFF;
-	font-family: Lucida Console;
-	font-size:13px;
-}
-.input_option_2{
-	height:25px;
-	background-color:#475a5f;
-	border: 0px solid #222;
-	color:#FFFFFF;
-	font-family: Lucida Console;
-	font-size:13px;
-}
-
-.input_option_2:hover{
-	height:25px;
-	background-color:#576D73;
-	border: 0px solid #222;
-	color:#FFFFFF;
-	font-family: Lucida Console;
-	font-size:13px;
-}
-#ss_basic_kcp_parameter{
-    display: block;
-    margin:0 auto;
-    overflow: hidden;
-    width: 99%;
-    font-size: 13px;
-	font-family: Lucida Console;
-    height: 25px;
-    line-height: 1.5;
-    padding:0px;
-}
-.ss_btn {
-	border: 1px solid #222;
-	background: linear-gradient(to bottom, #003333  0%, #000000 100%); /* W3C */
-	font-size:10pt;
-	color: #fff;
-	padding: 5px 5px;
-	border-radius: 5px 5px 5px 5px;
-	width:14%;
-}
-.ss_btn:hover {
-	border: 1px solid #222;
-	background: linear-gradient(to bottom, #27c9c9  0%, #279fd9 100%); /* W3C */
-	font-size:10pt;
-	color: #fff;
-	padding: 5px 5px;
-	border-radius: 5px 5px 5px 5px;
-	width:14%;
-}
-
-.FormTitle_chrome56{
-	margin-top:-100px;
-	line-height:160%;
-	font-size:12px;
-	font-family: Lucida Console;
-	border:1px solid #4D595D;
-	color:white;
-	position:relative;
-	*margin-top:-1px;
-	-webkit-border-bottom-right-radius: 3px;
-	-webkit-border-bottom-left-radius: 3px;
-	-moz-border-radius-bottomright: 3px;
-	-moz-border-radius-bottomleft: 3px;
-	border-bottom-right-radius: 3px;
-	border-bottom-left-radius: 3px;
-	behavior: url(/PIE.htc);
-	border-radius: 0 0 3px 3px;
-}
-.FormTitle_chrome56 thead{
-	color:#FFF;
-	font-size:13px;
-	text-align:center;	
-	font-weight:bold;
-	background-color:#4D595D;
-}
-.FormTitle_chrome56 tbody{
-	line-height:180%;
-}
-.FormTitle_chrome56 i {
-    color: #FC0;
-    font-style: normal;
-}
-.FormTitle_chrome56 em {
-    color: #00ffe4;
-    font-style: normal;
-}
-.FormTitle_chrome56 b {
-    color: #1cfe16;
-    font-style: normal;
-	font-weight:normal;
-}
-
-.FormTitle_firefox{
-	margin-top:-100px;
-	line-height:160%;
-	font-size:12px;
-	border:1px solid #4D595D;
-	color:white;
-}
-.FormTitle_firefox thead{
-	color:#FFF;
-	font-size:13px;
-	text-align:center;	
-	font-weight:bold;
-	background-color:#4D595D;
-}
-.FormTitle_firefox tbody{
-	line-height:180%;
-}
-
-.FormTitle_firefox i {
-    color: #FC0;
-    font-style: normal;
-}
-.FormTitle_firefox em {
-    color: #00ffe4;
-    font-style: normal;
-}
-.FormTitle_firefox b {
-    color: #1cfe16;
-    font-style: normal;
-	font-weight:normal;
-}
-.input_ss_table{
-	margin-left:2px;
-	padding-left:0.4em;
-	height:21px;
-	width:158.2px;
-	line-height:23px \9;	/*IE*/
-	font-size:13px;
-	font-family: Lucida Console;
-	background-image:none;
-	background-color: #576d73;
-	border:1px solid gray;
-	color:#FFFFFF;
-}
-
-.sub-btn1, .sub-btn2, .sub-btn3 {
-	border: 1px solid #222;
-	border-bottom:none;
-	background: linear-gradient(to bottom, #919fa4  0%, #67767d 100%); /* W3C */
-	font-size:10pt;
-	color: #fff;
-	padding: 10px 3.75px;
-	border-radius: 5px 5px 0px 0px;
-	width:16%;
-}
-.sub-btn1:hover, .sub-btn2:hover, .sub-btn3:hover, .active2 {
-	background: #2f3a3e;
-}
-
-.cloud_main_radius h2 { border-bottom:1px #AAA dashed;}
-.cloud_main_radius h3 { font-size:12px;color:#FFF;font-weight:normal;font-style: normal;}
-.cloud_main_radius h4 { font-size:12px;color:#FC0;font-weight:normal;font-style: normal;}
-.cloud_main_radius h5 { color:#FFF;font-weight:normal;font-style: normal;}

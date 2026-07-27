@@ -7,7 +7,7 @@
 <meta HTTP-EQUIV="Expires" CONTENT="-1"/>
 <link rel="shortcut icon" href="images/favicon.png"/>
 <link rel="icon" href="images/favicon.png"/>
-<title>【科学上网】</title>
+<title>【Shadowsocks】</title>
 <link rel="stylesheet" type="text/css" href="index_style.css"/>
 <link rel="stylesheet" type="text/css" href="form_style.css"/>
 <link rel="stylesheet" type="text/css" href="usp_style.css"/>
@@ -46,6 +46,7 @@ function init() {
 	version_show();
 	hook_event();
 	detect();
+	refresh_udp_runtime();
 	setTimeout("get_ss_status_data()", 500);
 }
 
@@ -68,22 +69,22 @@ function detect(){
 	if(jff2_scripts != 1){ //没有开启 JFFS scripts选项
 		hide_elem();
 		E("warn_msg_1").style.display = "";
-		$('#warn_msg_1').html('<h2><font color="#FF9900">错误！</font></h2><h2>【科学上网】插件不可用！因为你没有开启Enable JFFS custom scripts and configs选项！</h2><h2>请前往【系统管理】-<a href="Advanced_System_Content.asp"><u><em>【系统设置】</em></u></a>开启此选项再使用软件中心！！</h2>');
+		$('#warn_msg_1').html('<h2><font color="#FF9900">错误！</font></h2><h2>【Shadowsocks】插件不可用！因为你没有开启Enable JFFS custom scripts and configs选项！</h2><h2>请前往【系统管理】-<a href="Advanced_System_Content.asp"><u><em>【系统设置】</em></u></a>开启此选项再使用软件中心！！</h2>');
 	}
 	if(sw_mode != 1){ //使用的不是路由模式
 		hide_elem();
 		E("warn_msg_1").style.display = "";
-		$('#warn_msg_1').html('<h2><font color="#FF9900">错误！</font></h2><h2>【科学上网】插件不可用！因为你的设备工作在非路由模式下！</h2><h2>请前往【系统管理】-<a href="Advanced_OperationMode_Content.asp"><u><em>【操作模式】</em></u></a>中选择无线路由器模式！才能正常使用本插件！</h2>');
+		$('#warn_msg_1').html('<h2><font color="#FF9900">错误！</font></h2><h2>【Shadowsocks】插件不可用！因为你的设备工作在非路由模式下！</h2><h2>请前往【系统管理】-<a href="Advanced_OperationMode_Content.asp"><u><em>【操作模式】</em></u></a>中选择无线路由器模式！才能正常使用本插件！</h2>');
 	}
 	if(dnsfilter_enable == 1){ //开启了DNSFilter
 		hide_elem();
 		E("warn_msg_1").style.display = "";
-		$('#warn_msg_1').html('<h2><font color="#FF9900">错误！</font></h2><h2>【科学上网】插件不可用！因为开启了DNS过滤！</h2><h2>请前往【智能网络卫士】-<a href="DNSFilter.asp"><u><em>【DNS Filtering】</em></u></a>中关闭DNS过滤！才能正常使用本插件！</h2>');
+		$('#warn_msg_1').html('<h2><font color="#FF9900">错误！</font></h2><h2>【Shadowsocks】插件不可用！因为开启了DNS过滤！</h2><h2>请前往【智能网络卫士】-<a href="DNSFilter.asp"><u><em>【DNS Filtering】</em></u></a>中关闭DNS过滤！才能正常使用本插件！</h2>');
 	}
 	if(fw_version < 7.2){ //固件版本过低，不兼容
 		hide_elem();
 		E("warn_msg_1").style.display = "";
-		$('#warn_msg_1').html('<h2><font color="#FF9900">错误！</font></h2><h2>【科学上网】插件不可用！因为你的固件版本低于X7.2！</h2><h2>请更新最新固件！</h2>');
+		$('#warn_msg_1').html('<h2><font color="#FF9900">错误！</font></h2><h2>【Shadowsocks】插件不可用！因为你的固件版本低于X7.2！</h2><h2>请更新最新固件！</h2>');
 	}
 }
 
@@ -137,9 +138,9 @@ function pop_help() {
 			btnAlign: 'c',
 			moveType: 1,
 			content: '<div style="padding: 50px; line-height: 22px; background-color: #393D49; color: #fff; font-weight: 300;">\
-				<b>梅林固件 - 科学上网插件 - ' + db_ss["ss_basic_version_local"] + '</b><br><br>\
-				<color style="color: red;">重要提示:此插件向后维护 xray/trojan/naiveproxy/hysteria2/anytls 等功能更新，版本更新。</color><br><br>\
-				<a target="_blank" href="https://github.com/guijianchou/v2ray_bin_lite"><u>本插件</u></a>是支持<a target="_blank" href="https://github.com/shadowsocks/shadowsocks-libev"><u>SS（含SS2022）</u></a>、<a target="_blank" href="https://github.com/XTLS/Xray-core"><u>Xray（VMess、VLESS、Trojan、Trojan-Go）</u></a>、<a target="_blank" href="https://github.com/apernet/hysteria/"><u>Hysteria2</u></a>、<a target="_blank" href="https://github.com/anytls/anytls-go"><u>AnyTLS</u></a> 多协议客户端的科学上网工具（存量SSR/NaiveProxy节点仍可使用）；游戏模式（全量UDP加速）仅支持SS协议节点，其它协议可通过「同步UDP与TCP」按需代理QUIC与游戏端口。<br>				本插件仅支持Merlin AM380 2.6.36.4内核的固件，请不要用于其它固件安装。<br>\
+				<b>梅林固件 - Shadowsocks 插件 - ' + db_ss["ss_basic_version_local"] + '</b><br><br>\
+				<color style="color: red;">重要提示:此插件向后维护 xray/trojan/hysteria2 等功能更新，版本更新。</color><br><br>\
+				<a target="_blank" href="https://github.com/guijianchou/v2ray_bin_lite"><u>本插件</u></a>是支持<a target="_blank" href="https://github.com/shadowsocks/shadowsocks-libev"><u>SS（含SS2022）</u></a>、<a target="_blank" href="https://github.com/XTLS/Xray-core"><u>Xray（VMess、VLESS、Trojan、Trojan-Go）</u></a>、<a target="_blank" href="https://github.com/apernet/hysteria/"><u>Hysteria2</u></a> 多协议客户端的科学上网工具；游戏模式（全量UDP加速）仅支持SS协议节点，其它协议可通过「同步UDP与TCP」按需代理QUIC与游戏端口。<br>				本插件仅支持Merlin AM380 2.6.36.4内核的固件，请不要用于其它固件安装。<br>\
 				● 服务器一键搭建脚本：<a style="color:#e7bd16" target="_blank" href="https://github.com/guijianchou/v2ray_bin_lite/wiki"><u> 搭建和优化详细教程</u></a><br>\
 				● 插件安装包下载地址：下载最新版的<a style="color:#e7bd16" target="_blank" href="https://github.com/guijianchou/v2ray_bin_lite/releases"><u> shadowsocks.tar.gz </u></a>安装包, 保存下来的文件名不要有空格<br><br>\
 				我们的征途是星辰大海 ^_^</div>'
@@ -220,8 +221,8 @@ function makeHy2Bandwidth(label, valueId) {
 	if (!value) {
 		return "";
 	}
-	if (!/^[0-9]+(\.[0-9]+)?$/.test(value)) {
-		alert("错误！Hysteria2 " + label + "带宽数值必须是数字！");
+	if (!/^[1-9][0-9]*$/.test(value)) {
+		alert("错误！Hysteria2 " + label + "带宽必须是正整数！");
 		return false;
 	}
 	return value + " mbps";
@@ -239,7 +240,113 @@ function loadHy2Bandwidth(value, valueId) {
 	}
 }
 
+function isValidHy2IPv4(host) {
+	var octets = host.split(".");
+	if (octets.length != 4) {
+		return false;
+	}
+	for (var i = 0; i < octets.length; i++) {
+		if (!/^(?:0|[1-9][0-9]{0,2})$/.test(octets[i]) || parseInt(octets[i], 10) > 255) {
+			return false;
+		}
+	}
+	return true;
+}
+
+function isValidHy2ServerHost(host) {
+	if (!host || host.length > 254) {
+		return false;
+	}
+	if (host.charAt(0) == "[" || host.charAt(host.length - 1) == "]") {
+		if (!/^\[[0-9A-Fa-f:.]+\]$/.test(host)) {
+			return false;
+		}
+		var ipv6 = host.substring(1, host.length - 1);
+		if (ipv6.indexOf(".") != -1) {
+			var ipv4Separator = ipv6.lastIndexOf(":");
+			var ipv4Tail = ipv6.substring(ipv4Separator + 1);
+			if (ipv4Separator == -1 || !isValidHy2IPv4(ipv4Tail)) {
+				return false;
+			}
+			ipv6 = ipv6.substring(0, ipv4Separator) + ":0:0";
+		}
+		if (ipv6.indexOf(":") == -1 || ipv6.indexOf(":::") != -1) {
+			return false;
+		}
+		var compressed = ipv6.indexOf("::") != -1;
+		if (compressed && ipv6.indexOf("::") != ipv6.lastIndexOf("::")) {
+			return false;
+		}
+		var ipv6Parts = ipv6.split(":");
+		var groupCount = 0;
+		for (var i = 0; i < ipv6Parts.length; i++) {
+			if (!ipv6Parts[i]) {
+				continue;
+			}
+			if (ipv6Parts[i].length > 4 || !/^[0-9A-Fa-f]+$/.test(ipv6Parts[i])) {
+				return false;
+			}
+			groupCount++;
+		}
+		return compressed ? groupCount < 8 : groupCount == 8;
+	}
+	if (host.indexOf(":") != -1) {
+		return false;
+	}
+	var domain = host.charAt(host.length - 1) == "." ? host.substring(0, host.length - 1) : host;
+	if (!domain || domain.length > 253) {
+		return false;
+	}
+	if (/^[0-9.]+$/.test(domain)) {
+		return isValidHy2IPv4(domain);
+	}
+	var labels = domain.split(".");
+	for (var k = 0; k < labels.length; k++) {
+		if (labels[k].length < 1 || labels[k].length > 63 || !/^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/.test(labels[k])) {
+			return false;
+		}
+	}
+	return true;
+}
+
+function validateHy2Endpoint() {
+	if (!E("ss_basic_trojan_binary") || E("ss_basic_trojan_binary").value != "Hysteria2") {
+		return true;
+	}
+	var server = E("ss_basic_server") ? $.trim(E("ss_basic_server").value) : "";
+	var auth = E("ss_basic_password") ? $.trim(E("ss_basic_password").value) : "";
+	var portSpec = E("ss_basic_port") ? $.trim(E("ss_basic_port").value) : "";
+	if (!server || !auth) {
+		alert("错误！Hysteria2 服务器地址和认证密码不能为空！");
+		return false;
+	}
+	if (!isValidHy2ServerHost(server)) {
+		alert("错误！Hysteria2 服务器地址必须是合法域名、IPv4 或方括号 IPv6，如 example.com、1.2.3.4、[2001:db8::1]！");
+		return false;
+	}
+	if (!/^[0-9]+(?:-[0-9]+)?(?:,[0-9]+(?:-[0-9]+)?)*$/.test(portSpec)) {
+		alert("错误！Hysteria2 端口必须是单端口或逗号分隔的端口段，如 443,20000-50000！");
+		return false;
+	}
+	var ranges = portSpec.split(",");
+	for (var i = 0; i < ranges.length; i++) {
+		var bounds = ranges[i].split("-");
+		var start = parseInt(bounds[0], 10);
+		var end = bounds.length == 2 ? parseInt(bounds[1], 10) : start;
+		if (start < 1 || start > 65535 || end < start || end > 65535) {
+			alert("错误！Hysteria2 端口范围必须递增，且所有端点都在 1-65535！");
+			return false;
+		}
+	}
+	E("ss_basic_server").value = server;
+	E("ss_basic_port").value = portSpec;
+	return true;
+}
+
 function validateHy2GlobalJson() {
+	if (!validateHy2Endpoint()) {
+		return false;
+	}
 	var obj = {};
 	var obfsType = E("ss_basic_hy2_obfs_type") ? E("ss_basic_hy2_obfs_type").value : "";
 	var obfsPassword = E("ss_basic_hy2_obfs_password") ? $.trim(E("ss_basic_hy2_obfs_password").value) : "";
@@ -249,8 +356,32 @@ function validateHy2GlobalJson() {
 	var bbrProfile = E("ss_basic_hy2_bbr_profile") ? E("ss_basic_hy2_bbr_profile").value : "";
 	var bandwidthUp = makeHy2Bandwidth("上行", "ss_basic_hy2_bandwidth_up_value");
 	var bandwidthDown = makeHy2Bandwidth("下行", "ss_basic_hy2_bandwidth_down_value");
+	var switches = [
+		["ss_basic_hy2_udp", "UDP"],
+		["ss_basic_hy2_fast_open", "fastOpen"],
+		["ss_basic_hy2_lazy", "lazy"]
+	];
 
 	if (bandwidthUp === false || bandwidthDown === false) {
+		return false;
+	}
+	for (var i = 0; i < switches.length; i++) {
+		var switchValue = E(switches[i][0]) ? E(switches[i][0]).value : "";
+		if (switchValue != "0" && switchValue != "1") {
+			alert("错误！Hysteria2 " + switches[i][1] + " 开关值不合法！");
+			return false;
+		}
+	}
+	if (obfsType != "" && obfsType != "salamander" && obfsType != "gecko") {
+		alert("错误！Hysteria2 混淆类型不合法！");
+		return false;
+	}
+	if (congestionType != "" && congestionType != "bbr" && congestionType != "reno") {
+		alert("错误！Hysteria2 拥塞控制类型不合法！");
+		return false;
+	}
+	if (congestionType == "bbr" && bbrProfile != "standard" && bbrProfile != "conservative" && bbrProfile != "aggressive") {
+		alert("错误！Hysteria2 BBR 模式不合法！");
 		return false;
 	}
 
@@ -259,28 +390,35 @@ function validateHy2GlobalJson() {
 			alert("错误！启用 Hysteria2 混淆时必须填写混淆密码！");
 			return false;
 		}
+		var passwordBytes = unescape(encodeURIComponent(obfsPassword)).length;
+		if (passwordBytes < 4) {
+			alert("错误！Hysteria2 混淆密码至少需要 4 字节！");
+			return false;
+		}
 		obj.obfs = { type: obfsType };
 		obj.obfs[obfsType] = { password: obfsPassword };
 		if (obfsType == "gecko") {
 			if (geckoMin) {
-				if (!/^[0-9]+$/.test(geckoMin)) {
-					alert("错误！Gecko 最小包大小必须是数字！");
+				if (!/^[1-9][0-9]*$/.test(geckoMin)) {
+					alert("错误！Gecko 最小包大小必须是正整数！");
 					return false;
 				}
 				obj.obfs.gecko.minPacketSize = parseInt(geckoMin, 10);
 			}
 			if (geckoMax) {
-				if (!/^[0-9]+$/.test(geckoMax)) {
-					alert("错误！Gecko 最大包大小必须是数字！");
+				if (!/^[1-9][0-9]*$/.test(geckoMax)) {
+					alert("错误！Gecko 最大包大小必须是正整数！");
 					return false;
 				}
 				obj.obfs.gecko.maxPacketSize = parseInt(geckoMax, 10);
 			}
-			if (obj.obfs.gecko.minPacketSize && obj.obfs.gecko.maxPacketSize && obj.obfs.gecko.maxPacketSize < obj.obfs.gecko.minPacketSize) {
+			var effectiveMin = obj.obfs.gecko.minPacketSize || 512;
+			var effectiveMax = obj.obfs.gecko.maxPacketSize || 1200;
+			if (effectiveMax < effectiveMin) {
 				alert("错误！Gecko 最大包大小不能小于最小包大小！");
 				return false;
 			}
-			if (obj.obfs.gecko.maxPacketSize && obj.obfs.gecko.maxPacketSize > 2048) {
+			if (effectiveMax > 2048) {
 				alert("错误！Gecko 最大包大小不能超过 2048！");
 				return false;
 			}
@@ -314,19 +452,19 @@ function validateHy2GlobalJson() {
 			"bandwidth": true
 		};
 		if (!obj || Object.prototype.toString.call(obj) != "[object Object]" || Object.keys(obj).length == 0) {
-			alert("错误！Hysteria2 全局设定必须是包含 obfs、congestion 或 bandwidth 的 JSON 对象！");
+			alert("错误！Hysteria2设定必须是包含 obfs、congestion 或 bandwidth 的 JSON 对象！");
 			return false;
 		}
 		for (var key in obj) {
 			if (!allowed[key]) {
-				alert("错误！Hysteria2 全局设定目前只支持 obfs、congestion、bandwidth 三个顶层字段！");
+				alert("错误！Hysteria2设定目前只支持 obfs、congestion、bandwidth 三个顶层字段！");
 				return false;
 			}
 		}
 		E("ss_basic_hy2_global_json").value = JSON.stringify(obj, null, 2);
 		return true;
 	} catch (e) {
-		alert("错误！Hysteria2 全局设定不是正确的 JSON 格式！");
+		alert("错误！Hysteria2设定不是正确的 JSON 格式！");
 		return false;
 	}
 }
@@ -366,7 +504,6 @@ function updateHy2GlobalForm() {
 	var obfsType = E("ss_basic_hy2_obfs_type").value;
 	var congestionType = E("ss_basic_hy2_congestion_type").value;
 	showhide("ss_basic_hy2_obfs_password_span", !!obfsType);
-	showhide("ss_basic_hy2_gecko_br", obfsType == "gecko");
 	showhide("ss_basic_hy2_gecko_span", obfsType == "gecko");
 	showhide("ss_basic_hy2_bbr_profile_span", congestionType == "bbr");
 }
@@ -379,8 +516,8 @@ function save() {
 	}
 	//stop check status
 	checkss = 10001;
-	E("ss_state2").innerHTML = "国外连接 - " + "Waiting...";
-	E("ss_state3").innerHTML = "国内连接 - " + "Waiting...";
+	E("ss_state2").innerHTML = "国外连接 - <span class='ss-chip ss-chip-idle'>Waiting...</span>";
+	E("ss_state3").innerHTML = "国内连接 - <span class='ss-chip ss-chip-idle'>Waiting...</span>";
 	//remove blank before string
 	E("ss_basic_server").value = $.trim($("#ss_basic_server").val());
 	E("ss_basic_port").value = $.trim($("#ss_basic_port").val());
@@ -391,7 +528,7 @@ function save() {
 	// Game端口语法检查（仅代理QUIC+Game档）：非法则阻止保存并提示
 	if (E("ss_basic_udp_sync").value == "3") {
 		if (!check_game_port_input()) {
-			alert("Game Port 格式错误！\n应为单端口或端口段（低-高），多个用英文逗号隔开，如：27015,7777-7778\n端口范围 1-65535，总槽位不超过15（端口段占2个槽位）。");
+			alert("Game Port 格式错误！\n应为单端口或端口段（低-高），多个用英文逗号隔开，如：27015,7777-7778\n端口范围 1-65535，总槽位不超过15（端口段占2个槽位）。\n不能有前导零：请写 7777 而不是 07777（07777 会被 iptables 按八进制当成 4095）。");
 			E("ss_basic_udp_sync_game_port").focus();
 			return false;
 		}
@@ -399,7 +536,7 @@ function save() {
 	//define dbus object to save
 	var dbus = {};
 	//key define
-	var params_input = ["ssconf_basic_node", "ss_basic_mode", "ss_basic_server", "ss_basic_port", "ss_basic_method", "ss_basic_koolgame_udp", "ss_basic_ss_v2ray_plugin", "ss_basic_ss_v2ray_plugin_opts", "ss_basic_rss_protocol", "ss_basic_naive_protocol","ss_basic_naive_user","ss_basic_rss_protocol_param", "ss_basic_rss_obfs", "ss_basic_rss_obfs_param", "ssconf_basic_test_node", "ssconf_basic_test_domain", "ss_dns_china", "ss_dns_china_user", "ss_foreign_dns", "ss_dns2socks_user", "ss_chinadns_user", "ss_chinadns1_user",  "ss_sstunnel_user", "ss_direct_user", "ss_game2_dns_foreign", "ss_game2_dns2ss_user", "ss_basic_rule_update", "ss_basic_rule_update_time", "ss_basic_refreshrate", "ss_acl_default_port", "ss_acl_default_mode", "ss_basic_v2ray_uuid", "ss_basic_v2ray_alterid","ss_basic_v2ray_protocol", "ss_basic_v2ray_security", "ss_basic_v2ray_network", "ss_basic_v2ray_headtype_tcp", "ss_basic_v2ray_headtype_kcp", "ss_basic_v2ray_network_host", "ss_basic_v2ray_serviceName", "ss_basic_v2ray_network_path", "ss_basic_v2ray_network_tlshost", "ss_basic_trojan_sni", "ss_basic_trojan_binary", "ss_basic_trojan_network", "ss_basic_fingerprint", "ss_basic_v2ray_network_flow", "ss_basic_v2ray_network_security", "ss_basic_v2ray_mux_concurrency", "ss_basic_xray_publicKey", "ss_basic_xray_shortId",	"ss_reboot_check", "ss_basic_week", "ss_basic_day", "ss_basic_inter_min", "ss_basic_inter_hour", "ss_basic_inter_day", "ss_basic_inter_pre", "ss_basic_time_hour", "ss_basic_time_min", "ss_basic_tri_reboot_time", "ss_basic_tri_reboot_policy", "ss_basic_dnsmasq_fastlookup", "ss_basic_server_resolver", "ss_basic_server_resolver_user", "ss_basic_udp_sync", "ss_basic_udp_sync_game_port", "ss_basic_dns_hijack"];
+	var params_input = ["ssconf_basic_node", "ss_basic_mode", "ss_basic_server", "ss_basic_port", "ss_basic_method", "ss_basic_koolgame_udp", "ss_basic_ss_v2ray_plugin", "ss_basic_ss_v2ray_plugin_opts", "ss_basic_rss_protocol", "ss_basic_naive_protocol","ss_basic_naive_user","ss_basic_rss_protocol_param", "ss_basic_rss_obfs", "ss_basic_rss_obfs_param", "ssconf_basic_test_node", "ssconf_basic_test_domain", "ss_dns_china", "ss_dns_china_user", "ss_foreign_dns", "ss_dns2socks_user", "ss_chinadns_user", "ss_chinadns1_user",  "ss_sstunnel_user", "ss_direct_user", "ss_basic_rule_update", "ss_basic_rule_update_time", "ss_acl_default_port", "ss_acl_default_mode", "ss_basic_v2ray_uuid", "ss_basic_v2ray_alterid","ss_basic_v2ray_protocol", "ss_basic_v2ray_security", "ss_basic_v2ray_network", "ss_basic_v2ray_headtype_tcp", "ss_basic_v2ray_headtype_kcp", "ss_basic_v2ray_network_host", "ss_basic_v2ray_serviceName", "ss_basic_v2ray_network_path", "ss_basic_v2ray_network_tlshost", "ss_basic_trojan_sni", "ss_basic_trojan_binary", "ss_basic_trojan_network", "ss_basic_fingerprint", "ss_basic_v2ray_network_flow", "ss_basic_v2ray_network_security", "ss_basic_v2ray_mux_concurrency", "ss_basic_xray_publicKey", "ss_basic_xray_shortId",	"ss_reboot_check", "ss_basic_week", "ss_basic_day", "ss_basic_inter_min", "ss_basic_inter_hour", "ss_basic_inter_day", "ss_basic_inter_pre", "ss_basic_time_hour", "ss_basic_time_min", "ss_basic_tri_reboot_time", "ss_basic_tri_reboot_policy", "ss_basic_dnsmasq_fastlookup", "ss_basic_server_resolver", "ss_basic_server_resolver_user", "ss_basic_udp_sync", "ss_basic_udp_sync_game_port", "ss_basic_dns_hijack", "ss_basic_hy2_udp", "ss_basic_hy2_fast_open", "ss_basic_hy2_lazy"];
 	var params_check = ["ss_basic_enable", "ss_basic_gfwlist_update", "ss_basic_chnroute_update", "ss_basic_cdn_update", "ss_basic_v2ray_use_json", "ss_basic_v2ray_mux_enable","ss_basic_allowinsecure", "ss_basic_fragment"];
 	var params_base64_a = ["ss_dnsmasq", "ss_wan_white_ip", "ss_wan_white_domain", "ss_wan_black_ip", "ss_wan_black_domain"];
 	var params_base64_b = ["ss_basic_password", "ss_basic_custom", "ss_basic_hy2_global_json"];
@@ -500,7 +637,7 @@ function save() {
 		}
 	}
 	// node data: write node data under using from the main pannel incase of data change
-	var params = ["server", "mode", "port", "method", "ss_v2ray_plugin", "ss_v2ray_plugin_opts", "rss_protocol","naive_protocol", "naive_user","rss_protocol_param", "rss_obfs", "rss_obfs_param", "koolgame_udp", "v2ray_uuid", "v2ray_alterid", "v2ray_protocol", "v2ray_security", "v2ray_network", "v2ray_headtype_tcp", "v2ray_headtype_kcp", "v2ray_network_host","v2ray_network_path", "v2ray_network_tlshost", "v2ray_network_flow", "v2ray_network_security", "v2ray_mux_concurrency","trojan_sni", "trojan_binary", "trojan_network", "fingerprint","xray_publicKey", "xray_shortId"];
+	var params = ["server", "mode", "port", "method", "ss_v2ray_plugin", "ss_v2ray_plugin_opts", "rss_protocol","naive_protocol", "naive_user","rss_protocol_param", "rss_obfs", "rss_obfs_param", "koolgame_udp", "v2ray_uuid", "v2ray_alterid", "v2ray_protocol", "v2ray_security", "v2ray_network", "v2ray_headtype_tcp", "v2ray_headtype_kcp", "v2ray_serviceName", "v2ray_network_host","v2ray_network_path", "v2ray_network_tlshost", "v2ray_network_flow", "v2ray_network_security", "v2ray_mux_concurrency","trojan_sni", "trojan_binary", "trojan_network", "fingerprint","xray_publicKey", "xray_shortId"];
 	for (var i = 0; i < params.length; i++) {
 		dbus["ssconf_basic_" + params[i] + "_" + node_sel] = E("ss_basic_" + params[i]).value;
 	}
@@ -674,6 +811,182 @@ function update_ss_ui(obj) {
 	E("ss_basic_v2ray_json").value = do_js_beautify(Base64.decode(E("ss_basic_v2ray_json").value));
 }
 
+// UDP代理状态指示：显示后端回写的"本次实际生效"状态，而不是用户在下拉框里选的档位。
+// 两者会不一致——档位可能被节点核心能力、内核TPROXY探测、fwmark/table310冲突就地降级，
+// 这些降级只改运行时变量、不写 ss_basic_udp_sync，所以只回显下拉框等于把偏差原样搬到界面上。
+// 数据来源：ssconfig.sh 的 write_udp_runtime_state()，在全部降级判定与 hook 下发之后回写 dbus。
+// 运行时快照：由 refresh_udp_runtime() 从 /dbconf?p=ss_runtime 拉取并覆盖。
+// 【注意前缀是 ss_runtime 不是 ss_runtime_udp】——DNS 那条链路的状态键也在这个前缀下，
+// 一次拉全。谁把它改窄成 ss_runtime_udp，DNS 那一行会永久停在"未知"。
+// 不能直接用 db_ss —— 那是页面载入那一刻的快照，而提交后本页既不 reload 也不重取 dbus
+// （push_data -> get_realtime_log -> hideSSLoadingBar 就结束了），于是用户改完档位点提交，
+// 看到的还是上一次运行的状态，恰好是他唯一会盯着这行看的时刻。
+var udp_runtime = null;
+var udp_poll_tick = 0;
+
+function udp_rt(key) {
+	if (udp_runtime && typeof(udp_runtime[key]) != "undefined") return udp_runtime[key];
+	if (typeof(db_ss) != "undefined" && typeof(db_ss[key]) != "undefined") return db_ss[key];
+	return undefined;
+}
+
+// 从 dbus 重新拉取 ss_runtime_* 后重绘。/dbconf?p=<前缀> 会返回一段
+// "var db_<前缀> = {...}" 的 JS（get_ss_status_data 拉 ss_basic_enable 用的就是这个机制）。
+// 前缀取 ss_runtime 而不是 ss_runtime_udp：DNS 那条链路也有运行时状态要显示，一次拉全。
+function refresh_udp_runtime() {
+	$.ajax({
+		type: "get",
+		url: "/dbconf?p=ss_runtime",
+		dataType: "script",
+		success: function() {
+			if (typeof(db_ss_runtime) != "undefined") udp_runtime = db_ss_runtime;
+			update_udp_indicator();
+			update_dns_indicator();
+		},
+		error: function() { update_udp_indicator(); update_dns_indicator(); }
+	});
+}
+
+// UDP代理状态指示：显示后端回写的"本次实际生效"状态，而不是用户在下拉框里选的档位。
+// 两者会不一致——档位可能被节点核心能力、内核TPROXY探测、fwmark/table310冲突就地降级，
+// 这些降级只改运行时变量、不写 ss_basic_udp_sync。
+// 显示两段信息：
+//   档位段  <- ss_runtime_udp_state  由 ssconfig.sh write_udp_runtime_state 回写（配置层）
+//   实测段  <- ss_runtime_udp_probe  由 ss/cru/udp.sh 回写（运行层，此刻立起来了没有）
+// 其中 probe=pass 是"仅代理QUIC"档的正常态：该档只代理 UDP/443，没有非443 UDP 可查，
+// 按设计跳过本项检查，绝不能显示成红色失败。
+function update_udp_indicator() {
+	if (!E("ss_state4")) return;
+	var udp_state = udp_rt("ss_runtime_udp_state");
+	var udp_text  = udp_rt("ss_runtime_udp_text");
+	var probe     = udp_rt("ss_runtime_udp_probe");
+	var probe_txt = udp_rt("ss_runtime_udp_probe_text");
+	var probe_at  = udp_rt("ss_runtime_udp_probe_time");
+
+	function esc(s) {
+		return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+	}
+	function chip(cls, label) {
+		return '<span class="ss-chip ss-chip-' + cls + '">' + esc(label) + '</span>';
+	}
+
+	if (typeof(udp_state) == "undefined" || udp_state == "") {
+		$("#ss_state4").html("UDP代理 " + chip("idle", "未知") +
+			'<span class="ss-chip-note">应用一次配置后自动刷新</span>').attr("title", "");
+		return;
+	}
+	// 档位（配置层）：[芯片文案, 芯片样式]
+	var udp_map = {
+		"off":             ["关闭",      "idle"],
+		"disabled":        ["未启用",    "idle"],
+		"quic":            ["仅QUIC",    "ok"],
+		"quic_game":       ["QUIC+Game", "ok"],
+		"full":            ["全量UDP",   "ok"],
+		"game":            ["游戏模式",  "ok"],
+		// 【能力不支持(黄) vs 环境故障(红)】这两类要分开，原来一律标红是误导：
+		//   node   —— hy2 的UDP开关没勾 / naive、anytls 本插件没配透明UDP入站
+		//   plugin —— hy2 构建不认 udpTProxy / SIP003 simple-obfs 没有UDP通路
+		//     这两类链路本身是好的，是【这个节点或协议提供不了UDP加速】，
+		//     用户换个节点、勾个开关就解决了，标红会让人以为插件坏了。
+		//   kernel —— 内核不接受TPROXY / fwmark 0x07 被占 / 路由表310被占
+		//     这才是真故障：换节点也没用，必须红灯。
+		"degraded_node":   ["节点不支持UDP加速", "warn"],
+		"degraded_plugin": ["传输层不支持UDP",   "warn"],
+		"degraded_kernel": ["内核/环境故障",     "crit"]
+	};
+	// 实测（运行层）：[芯片文案, 芯片样式]。off 不出芯片——档位本来就关着，再挂一枚是噪音。
+	// pass 用 skip 样式（空心点）：它既不是绿灯也不是故障，是"本档只代理QUIC/443，
+	// 没有非443 UDP 可查"，必须和 ok 在视觉上区分开，否则用户会以为检测过了。
+	// warn：链路本身是好的，但配置多半有问题 —— 目前唯一来源是「Game端口疑似填错」
+	// （该端口零命中，同时兜底链在放行境外非443 UDP）。它不是故障、也不该是绿灯。
+	// 注意这里【故意没有 unsupported】：那种情况配置层芯片已经写明"节点不支持UDP加速"，
+	// 实测层再挂一枚同义芯片是噪音。与 off 不出芯片是同一个道理。
+	var probe_map = {
+		"pass": ["非443UDP不适用", "skip"],
+		"ok":   ["链路就绪",       "ok"],
+		"flow": ["有流量",         "ok"],
+		"warn": ["Game端口疑似填错", "warn"],
+		"fail": ["异常",           "crit"]
+	};
+	var udp_hit = udp_map[udp_state] || ["未知", "idle"];
+	var html = "UDP代理 " + chip(udp_hit[1], udp_hit[0]);
+	if (probe_map[probe]) html += chip(probe_map[probe][1], probe_map[probe][0]);
+
+	// 只有需要用户动手的两种情况才把原因摊在行内；其余留给 tooltip，避免状态条变成一堵字墙
+	if (udp_state.indexOf("degraded") == 0 && udp_text) {
+		// 说明文字的颜色跟着芯片的严重度走：能力不支持是黄的，环境故障才是红的
+		var deg_cls = (udp_hit[1] == "crit") ? "ss-chip-note-crit" : "ss-chip-note-warn";
+		html += '<span class="ss-chip-note ' + deg_cls + '">' + esc(udp_text) + '</span>';
+	} else if (probe == "fail" && probe_txt) {
+		html += '<span class="ss-chip-note ss-chip-note-crit">' + esc(probe_txt) + '</span>';
+	} else if (probe == "warn" && probe_txt) {
+		// warn 的文案里带着"下一步该跑什么命令"，必须摊在行内，收进 tooltip 就等于没有
+		html += '<span class="ss-chip-note ss-chip-note-warn">' + esc(probe_txt) + '</span>';
+	}
+
+	var tip = (udp_text || "");
+	if (probe_txt) tip = tip + (tip ? "\n" : "") + "实测：" + probe_txt + (probe_at ? " @" + probe_at : "");
+	// 芯片自带颜色，清掉早期版本留下的行内 color，免得盖住芯片配色
+	$("#ss_state4").html(html).attr("title", tip).css("color", "");
+}
+
+// DNS劫持状态指示：与 UDP 那行严格对称。
+// 存在的理由：ss_basic_dns_hijack 是用户的请求值，而【全部强制】档有两条静默回退路径 ——
+// ①53 改道规则没能完整写入 ②本机 dnsmasq 未就绪（含 dnsmasq-fastlookup 替换后起不来）。
+// 两种情况都会退回【默认】档，此前界面上完全看不出来：下拉框照旧显示"全部"，
+// 用户以为 DoT/DoH 正在被拦、白名单可靠生效，实际并没有。
+// 数据来源：ssconfig.sh 的 write_dns_runtime_state()，在 chromecast 里按实际走到的分支回写。
+function update_dns_indicator() {
+	if (!E("ss_state5")) return;
+	var st = udp_rt("ss_runtime_dns_state");
+	var txt = udp_rt("ss_runtime_dns_text");
+
+	function esc(s) {
+		return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+	}
+	if (typeof(st) == "undefined" || st == "") {
+		$("#ss_state5").html('DNS劫持 <span class="ss-chip ss-chip-idle">未知</span>' +
+			'<span class="ss-chip-note">应用一次配置后自动刷新</span>').attr("title", "");
+		return;
+	}
+	// [芯片文案, 芯片样式]。fallback_default 是唯一需要用户采取行动的状态，
+	// 用 crit 并把原因摊在行内 —— 它意味着用户选了"全部"但实际没生效。
+	var map = {
+		"off":              ["关闭",     "idle"],
+		"default":          ["默认",     "ok"],
+		"all":              ["全部强制", "ok"],
+		"fallback_default": ["已回退",   "crit"]
+	};
+	var hit = map[st] || ["未知", "idle"];
+	var html = 'DNS劫持 <span class="ss-chip ss-chip-' + hit[1] + '">' + esc(hit[0]) + '</span>';
+
+	// dnsmasq-fastlookup 的【实际】状态。用户反馈过"开了替换也检测不出来" ——
+	// 此前界面上确实无处可看：档位是请求值，是否真的挂上取决于 mount_dnsmasq 的 --test
+	// 预检（不兼容会静默放弃替换、只打一行日志）。want_but_off 就是那个差异，标红。
+	var fl = udp_rt("ss_runtime_dns_fastlookup");
+	if (fl == "on") {
+		html += '<span class="ss-chip ss-chip-ok">fastlookup</span>';
+	} else if (fl == "want_but_off") {
+		html += '<span class="ss-chip ss-chip-crit">fastlookup未生效</span>' +
+			'<span class="ss-chip-note ss-chip-note-crit">已选替换但实际未挂载，多为与当前dnsmasq配置不兼容（--test未通过）</span>';
+	}
+
+	// 7913 解析器有没有国内仲裁。这是"直连网页偶尔卡顿"的结构性成因所在：
+	// 纯隧道型解析器在隧道抖动时没有国内上游可退，不在 gfwlist/cdn 列表里的域名会解析超时。
+	// 只在「全部强制」档提示 —— 该档把所有客户端都拉进这条链路，影响面最大。
+	var arb = udp_rt("ss_runtime_dns_arbiter");
+	if (st == "all" && arb == "tunnel_only") {
+		html += '<span class="ss-chip ss-chip-warn">7913无国内仲裁</span>' +
+			'<span class="ss-chip-note">隧道抖动时非gfwlist/cdn域名会解析超时（表现为直连网页偶尔卡顿）；' +
+			'把【国外DNS方案】改为 ChinaDNS-NG 或 chinadns1 可从根上消除</span>';
+	}
+
+	if (st == "fallback_default" && txt) {
+		html += '<span class="ss-chip-note ss-chip-note-crit">' + esc(txt) + '</span>';
+	}
+	$("#ss_state5").html(html).attr("title", txt || "").css("color", "");
+}
+
 function is_ss_node() {
 	// 游戏模式仅限SS协议(ss-libev)：SSR/koolgame/naive/v2ray/trojan节点及SS2022(经xray运行)均不支持
 	var node_sel = E("ssconf_basic_node").value;
@@ -689,9 +1002,12 @@ function is_ss_node() {
 }
 
 // Game端口语法检查（与后端 validate_game_ports 同规则）：单端口或"低-高"段，逗号分隔，
-// 端口1-65535，multiport总槽位≤15（端口段占2）
+// 端口1-65535，multiport总槽位≤15（端口段占2），首位必须1-9不允许前导零。
+// 前导零必须在这里就拦住：iptables 的 xtables_strtoul 以 base 0 解析端口，07777 会被当成
+// 八进制 4095 静默生效，08/09 则让 iptables 直接拒绝规则。parseInt(x,10) 看不出这个差别，
+// 所以判断只能落在正则形状上，且必须与后端正则保持一致。
 function game_port_syntax_ok(gp) {
-	if (!/^\d{1,5}(-\d{1,5})?(,\d{1,5}(-\d{1,5})?)*$/.test(gp)) return false;
+	if (!/^[1-9]\d{0,4}(-[1-9]\d{0,4})?(,[1-9]\d{0,4}(-[1-9]\d{0,4})?)*$/.test(gp)) return false;
 	var segs = gp.split(","), slots = 0;
 	for (var gi = 0; gi < segs.length; gi++) {
 		var pr = segs[gi].split("-");
@@ -716,18 +1032,36 @@ function check_game_port_input() {
 	return ok;
 }
 
-function apply_game_mode_limit() {
-	// 非SS节点禁用两处模式select里的游戏模式选项；已选中时回退为大陆白名单
-	var ok = is_ss_node();
-	var ids = ["ss_basic_mode", "ss_node_table_mode"];
-	for (var k = 0; k < ids.length; k++) {
-		var sel = E(ids[k]);
-		if (!sel) continue;
-		for (var i = 0; i < sel.options.length; i++) {
-			if (sel.options[i].value == "3") sel.options[i].disabled = !ok;
-		}
-		if (!ok && sel.value == "3") sel.value = "2";
+// 节点【对话框】里正在编辑的那个节点是不是 SS 协议。
+// 不能用 is_ss_node() —— 那读的是 ssconf_basic_node，即"当前生效节点"；
+// 而"添加节点"时对话框里的节点还不存在，它的 ssconf_basic_*_<n> 键在 db_ss 里查不到，
+// 于是 is_ss_node() 实际是拿【旧的生效节点】在判断：当前生效节点若是
+// Hysteria2/V2Ray 之类，即便你正在添加的是 SS 节点，游戏模式也会被错误置灰。
+// 对话框的类型由 tabclickhandler 写进 save_flag / #vpnc_type，这才是该看的东西。
+function is_ss_node_dialog() {
+	var t = (typeof(save_flag) != "undefined" && save_flag) ? save_flag : (E("vpnc_type") ? E("vpnc_type").value : "");
+	// save_flag 取值：shadowsocks / shadowsocksR / gameV2 / naive / v2ray / trojan
+	if (t != "shadowsocks") return false;
+	// SS2022 与 none 经 xray 运行（type 3），同样不支持游戏模式
+	var m = E("ss_node_table_method");
+	if (m && m.value && (m.value.indexOf("2022-") == 0 || m.value == "none")) return false;
+	return true;
+}
+
+function set_game_option(sel, ok) {
+	if (!sel) return;
+	for (var i = 0; i < sel.options.length; i++) {
+		if (sel.options[i].value == "3") sel.options[i].disabled = !ok;
 	}
+	if (!ok && sel.value == "3") sel.value = "2";
+}
+
+function apply_game_mode_limit() {
+	// 两处 select 的判断依据【不同】，此前共用 is_ss_node() 是错的：
+	//   主界面的模式    -> 看【当前生效节点】
+	//   节点对话框的模式 -> 看【对话框里正在编辑的节点】
+	set_game_option(E("ss_basic_mode"), is_ss_node());
+	set_game_option(E("ss_node_table_mode"), is_ss_node_dialog());
 }
 
 function verifyFields(r) {
@@ -788,6 +1122,8 @@ function verifyFields(r) {
 		$("#mode_state").html("运行状态【回国模式】");
 	}
 
+	update_udp_indicator();
+	update_dns_indicator();
 
 	//ss-libev
 	showhide("ss_v2ray_plugin", ss_on);
@@ -856,8 +1192,6 @@ function verifyFields(r) {
 	
 	// dns pannel
 	showhide("dns_plan_foreign", !koolgame_on);
-	showhide("dns_plan_foreign_game2", koolgame_on);	
-
 	//node add/edit pannel
 	if (save_flag == "shadowsocks") {
 		E('allowinsecure_tr').style.display = "none";
@@ -1046,6 +1380,18 @@ function verifyFields(r) {
 	refresh_acl_table();
 }
 
+// 分组表头的空组自动隐藏。
+// "账号设置"那一页有 61 个设置行、其中 34 行按节点类型条件隐藏（update_visibility 里
+// 「账号设置」原有 6 个分组表头，现只保留「节点」一个（真机反馈：其余是噪音）。
+// 原先这里有个 update_group_headers()：从一个 .ss-group 往下扫到下一个 .ss-group，
+// 中间没有可见行就把表头也隐藏，用来避免"空组留下孤立表头"。
+// 【为什么删掉它】它挂在 update_visibility() 上，而 update_visibility 的 12 个调用点
+// 全都发生在 tablet_1（账号设置）已经隐藏的时候（其它页签的 handler 与控件事件）。
+// 那一刻 tablet_1 里所有行的 offsetParent 都是 null，于是它把仅存的「节点」表头
+// 也判成空组、写上行内 display:none；而切回「账号设置」没有任何代码重算 ——
+// 结果是用户点一次别的页签再回来，唯一该保留的标题就永久消失了。
+// 只剩一个分组之后这套机制也没有存在意义：「节点」组下面紧跟节点选择与模式选择两行，
+// 全项目没有任何 showhide 引用它们，该组不可能为空。
 function update_visibility() {
 	apply_game_mode_limit();
 	var a = E("ss_basic_rule_update").value == "1";
@@ -1809,6 +2155,9 @@ function tabclickhandler(_type) {
 		E('naive_user_tr').style.display = "none";
 	} 
 	return save_flag;
+	// 切换"添加SS/V2Ray/Trojan…"页签会改变 save_flag，也就改变了对话框里节点的类型，
+	// 必须重算游戏模式选项的可用性 —— 否则从非SS页签切到SS页签时它还是灰的。
+	apply_game_mode_limit();
 }
 
 function add_ss_node_conf(flag) { //点击添加按钮动作
@@ -2624,8 +2973,9 @@ function version_show() {
 				} else {
 					if (typeof(db_ss["ss_basic_version_local"]) != "undefined") {
 					    if (res["version"] > db_ss["ss_basic_version_local"]) {
-						    $("#ss_version_show").html("<a class='hintstyle' href='javascript:void(12);' onclick='openssHint(12)'><i>当前版本：" + db_ss['ss_basic_version_local'] + "</i></a>");
-						    $("#updateBtn").html("<i>升级到：" + res.version + "</i>");
+						    // 主界面的"检查并更新"按钮已移除，这里把"有新版本"并进版本号一起显示，
+						    // 只报信息不提供入口；升级请走软件中心。
+						    $("#ss_version_show").html("<a class='hintstyle' href='javascript:void(12);' onclick='openssHint(12)'><i>当前版本：" + db_ss['ss_basic_version_local'] + "（有新版本 " + res.version + "，请到软件中心升级）</i></a>");
 					    }
 					} else {
 						$("#ss_version_show").html("<a class='hintstyle' href='javascript:void(12);' onclick='openssHint(12)'><i>当前版本：未知</i></a>");
@@ -2652,8 +3002,8 @@ function get_ss_status_data() {
 							console.log(response)
 							var arr = JSON.parse(response);
 							if (arr[0] == "" || arr[1] == "") {
-								E("ss_state2").innerHTML = "国外连接 - " + "Waiting for first refresh...";
-								E("ss_state3").innerHTML = "国内连接 - " + "Waiting for first refresh...";
+								E("ss_state2").innerHTML = "国外连接 - <span class='ss-chip ss-chip-idle'>Waiting for first refresh...</span>";
+								E("ss_state3").innerHTML = "国内连接 - <span class='ss-chip ss-chip-idle'>Waiting for first refresh...</span>";
 							} else {
 								E("ss_state2").innerHTML = arr[0];
 								E("ss_state3").innerHTML = arr[1];
@@ -2661,28 +3011,23 @@ function get_ss_status_data() {
 						}
 					});
 				} else {
-					E("ss_state2").innerHTML = "国外连接 - " + "Waiting...";
-					E("ss_state3").innerHTML = "国内连接 - " + "Waiting...";
+					E("ss_state2").innerHTML = "国外连接 - <span class='ss-chip ss-chip-idle'>Waiting...</span>";
+					E("ss_state3").innerHTML = "国内连接 - <span class='ss-chip ss-chip-idle'>Waiting...</span>";
 				}
+				// UDP 那行跟着状态栏一起活着：cru/udp.sh 每5分钟重算一次，这里每约第4轮
+				// （20~30秒）取一次就够，不必每轮都拉。
+				if ((++udp_poll_tick % 4) == 1) refresh_udp_runtime();
 				refreshRate = Math.floor(Math.random() * 4000) + 4000;
 				setTimeout("get_ss_status_data();", refreshRate);
 			}
 
 		});
 	}else{
-		E("ss_state2").innerHTML = "国外连接 - " + "Waiting...";
-		E("ss_state3").innerHTML = "国内连接 - " + "Waiting...";
+		E("ss_state2").innerHTML = "国外连接 - <span class='ss-chip ss-chip-idle'>Waiting...</span>";
+		E("ss_state3").innerHTML = "国内连接 - <span class='ss-chip ss-chip-idle'>Waiting...</span>";
 	}
 }
 
-function update_ss() {
-	db_ss["ss_basic_action"] = "7";
-	var dbus = {};
-	dbus["SystemCmd"] = "ss_update.sh";
-	dbus["action_mode"] = " Refresh ";
-	dbus["current_page"] = "Main_Ss_Content.asp";
-	push_data(dbus);
-}
 
 function toggle_func() {
 	var ssmode = E("ss_basic_mode").value;
@@ -2928,6 +3273,9 @@ function get_realtime_log() {
 				E("ok_button").style.display = "";
 				retArea.scrollTop = retArea.scrollHeight;
 				x = 5;
+				// 脚本跑完了，此刻 dbus 里的 ss_runtime_udp_* 才是本次应用的结果。
+				// 必须重新拉一次：本页提交后不 reload，db_ss 还是载入时的旧快照。
+				refresh_udp_runtime();
 				count_down_close();
 				return true;
 			} else {
@@ -3249,7 +3597,7 @@ function pullLANIPList(obj) {
 	var element = E('ClientList_Block');
 	var isMenuopen = element.offsetWidth > 0 || element.offsetHeight > 0;
 	if (isMenuopen == 0) {
-		obj.src = "/images/arrow-top.gif"
+		obj.src = "/images/arrow-top.gif";
 		element.style.display = 'block';
 	} else{
 		hideClients_Block();
@@ -3534,16 +3882,16 @@ function set_cron(action) {
 								<tr>
 									<td bgcolor="#4D595D" colspan="3" valign="top">
 										<div>&nbsp;</div>
-										<div class="formfonttitle">梅林固件 - 科学上网插件</div>
+										<div class="formfonttitle">梅林固件 - Shadowsocks 插件</div>
 										<div style="float:right; width:15px; height:25px;margin-top:-20px">
 											<img id="return_btn" onclick="reload_Soft_Center();" align="right" style="cursor:pointer;position:absolute;margin-left:-30px;margin-top:-25px;" title="返回软件中心" src="/images/backprev.png" onMouseOver="this.src='/images/backprevclick.png'" onMouseOut="this.src='/images/backprev.png'"></img>
 										</div>
 										<div style="margin-left:5px;margin-top:10px;margin-bottom:10px"><img src="/images/New_ui/export/line_export.png"></div>
-										<div class="SimpleNote" id="head_illustrate"><a target="_blank" href="https://github.com/guijianchou/v2ray_bin_lite" ><em><u>本插件</u></em></a>是支持<a href="https://github.com/shadowsocks/shadowsocks-libev" target="_blank"><em><u>SS（含SS2022）</u></em></a>, <a target="_blank" href="https://github.com/XTLS/Xray-core"><em><u>Xray (VMess, VLESS, Trojan, Trojan-Go)</u></em></a>, <a target="_blank" href="https://github.com/apernet/hysteria/"><em><u>Hysteria2</u></em></a>, <a target="_blank" href="https://github.com/anytls/anytls-go"><em><u>AnyTLS</u></em></a> 的科学上网工具（存量SSR/NaiveProxy节点仍可使用）; 游戏模式仅支持SS协议节点, 其它协议可用「同步UDP与TCP」按需代理QUIC与游戏端口。</div>
+										<div class="SimpleNote" id="head_illustrate"><a target="_blank" href="https://github.com/guijianchou/v2ray_bin_lite" ><em><u>本插件</u></em></a>是支持<a href="https://github.com/shadowsocks/shadowsocks-libev" target="_blank"><em><u>SS（含SS2022）</u></em></a>, <a target="_blank" href="https://github.com/XTLS/Xray-core"><em><u>Xray (VMess, VLESS, Trojan, Trojan-Go)</u></em></a>, <a target="_blank" href="https://github.com/apernet/hysteria/"><em><u>Hysteria2</u></em></a> 的科学上网工具; 游戏模式仅支持SS协议节点, 其它协议可用「同步UDP与TCP」按需代理QUIC与游戏端口。</div>
 										<div style="margin-top: 0px;text-align: center;font-size: 18px;margin-bottom: 0px;" class="formfontdesc" id="cmdDesc"></div>
 										<!-- this is the popup area for status -->
 										<div id="detail_status"  class="content_status" style="box-shadow: 3px 3px 10px #000;margin-top: 0px;display: none;">
-											<div class="user_title">【科学上网】状态检测</div>
+											<div class="user_title">【Shadowsocks】状态检测</div>
 											<div style="margin-left:15px"><i>&nbsp;&nbsp;目前本功能支持ss相关进程状态和iptables表状态检测。</i></div>
 											<div id="user_tr" style="margin: 10px 10px 10px 10px;width:98%;text-align:center;overflow:hidden">
 												<textarea cols="63" rows="36" wrap="off" id="proc_status" style="width:98%;padding-left:13px;padding-right:33px;border:0px solid #222;font-family:'Lucida Console'; font-size:11px;background: transparent;color:#FFFFFF;outline: none;overflow-x:hidden;" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
@@ -3561,7 +3909,7 @@ function set_cron(action) {
 												</tr>
 												</thead>
 												<tr>
-												<th id="ss_switch"><a class="hintstyle" href="javascript:void(0);" onclick="openssHint(10)">科学上网开关</a></th>
+												<th id="ss_switch"><a class="hintstyle" href="javascript:void(0);" onclick="openssHint(10)">Shadowsocks 开关</a></th>
 													<td colspan="2">
 														<div class="switch_field" style="display:table-cell;float: left;">
 															<label for="ss_basic_enable">
@@ -3574,10 +3922,7 @@ function set_cron(action) {
 																</div>
 															</label>
 														</div>
-														<div id="update_button" style="display:table-cell;float: left;position: absolute;margin-left:70px;padding: 5.5px 0px;">
-															<a id="updateBtn" type="button" class="ss_btn" style="cursor:pointer" onclick="update_ss(3)">检查并更新</a>
-														</div>
-														<div id="ss_version_show" style="display:table-cell;float: left;position: absolute;margin-left:170px;padding: 5.5px 0px;">
+														<div id="ss_version_show" style="display:inline-block;vertical-align:middle;margin-left:18px;padding: 5.5px 0px;">
 															<a class="hintstyle" href="javascript:void(0);" onclick="openssHint(12)">
 																<i>当前版本：<% dbus_get_def("ss_basic_version_local", "未知"); %></i>
 															</a>
@@ -3588,7 +3933,7 @@ function set_cron(action) {
 														<div style="display:table-cell;float: left;margin-left:350px;position: absolute;padding: 5.5px 0px;">
 															<a type="button" class="ss_btn" href="javascript:void(0);" onclick="pop_help()">插件帮助</a>
 														</div>-->
-														<div style="display:table-cell;float: left;margin-left:270px;position: absolute;padding: 5.5px 0px;">
+														<div style="display:inline-block;vertical-align:middle;margin-left:14px;padding: 5.5px 0px;">
 															<a type="button" class="ss_btn" href="javascript:void(0);" onclick="pop_help()">插件帮助</a>
 														</div>
 													</td>
@@ -3599,21 +3944,29 @@ function set_cron(action) {
 											<table style="margin:-1px 0px 0px 0px;" width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3" class="FormTable" >
 												<tr id="ss_state">
 												<th id="mode_state" width="35%"><a class="hintstyle" href="javascript:void(0);" onclick="openssHint(0)">SS运行状态</a></th>
-													<td>
-														<div style="display:table-cell;float: left;margin-left:0px;">
-															<a class="hintstyle" href="javascript:void(0);" onclick="openssHint(0)">
-																<span id="ss_state2">国外连接 - Waiting...</span>
-																<br/>
-																<span id="ss_state3">国内连接 - Waiting...</span>
-															</a>
-														</div>
-														<div style="display:table-cell;float: left;margin-left:270px;position: absolute;padding: 10.5px 0px;">
-															<a type="button" class="ss_btn" style="cursor:pointer" onclick="pop_111(3)" href="javascript:void(0);">分流检测</a>
-														</div>
-														<div style="display:table-cell;float: left;margin-left:350px;position: absolute;padding: 10.5px 0px;">
+											<td>
+												<div class="ss-status-layout">
+													<div class="ss-status-lines">
+														<a class="hintstyle" href="javascript:void(0);" onclick="openssHint(0)">
+															<span id="ss_state2">国外连接 - <span class="ss-chip ss-chip-idle">Waiting...</span></span>
+															<br/>
+															<span id="ss_state3">国内连接 - <span class="ss-chip ss-chip-idle">Waiting...</span></span>
+														</a>
+														<br/>
+														<a class="hintstyle" href="javascript:void(0);" onclick="openssHint(116)">
+															<span id="ss_state4">UDP代理 - <span class="ss-chip ss-chip-idle">Waiting...</span></span>
+														</a>
+														<br/>
+														<a class="hintstyle" href="javascript:void(0);" onclick="openssHint(106)">
+															<span id="ss_state5">DNS劫持 - <span class="ss-chip ss-chip-idle">Waiting...</span></span>
+														</a>
+													</div>
+													<div class="ss-status-actions">
+														<a type="button" class="ss_btn" style="cursor:pointer" onclick="pop_111(3)" href="javascript:void(0);">分流检测</a>
 														<a type="button" class="ss_btn" style="cursor:pointer" onclick="get_proc_status(3)" href="javascript:void(0);">详细状态</a>
-														</div>
-													</td>
+													</div>
+												</div>
+											</td>
 												</tr>
 											</table>
 										</div>
@@ -4050,6 +4403,7 @@ function set_cron(action) {
 										<!--=====bacic show =====-->
 										<div id="tablet_1">
 											<table style="margin:-1px 0px 0px 0px;" width="100%" border="0" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3" class="FormTable" >
+												<tr class="ss-group"><td colspan="2">节点</td></tr>
 												<tr id="node_select">
 													<th width="35%"><a class="hintstyle" href="javascript:void(0);" onclick="openssHint(15)">节点选择</a></th>
 													<td>
@@ -4302,9 +4656,9 @@ function set_cron(action) {
 														</select>
 													</td>
 												</tr>
-												<tr id="v2ray_headtype_tcp_basic_tr" style="display: none;">
+												<tr class="ss-sub" id="v2ray_headtype_tcp_basic_tr" style="display: none;">
 													<th width="35%">
-														<a class="hintstyle" href="javascript:void(0);" onclick="openssHint(36)"><font color="#ffcc00">&nbsp;&nbsp;* tcp伪装类型 (type)</font></a>
+														<a class="hintstyle" href="javascript:void(0);" onclick="openssHint(36)"><font color="#ffcc00">tcp伪装类型 (type)</font></a>
 													</th>
 													<td>
 														<select id="ss_basic_v2ray_headtype_tcp" name="ss_basic_v2ray_headtype_tcp" style="width:164px;margin:0px 0px 0px 2px;" class="input_option" onchange="verifyFields(this, 1);">
@@ -4313,9 +4667,9 @@ function set_cron(action) {
 														</select>
 													</td>
 												</tr>
-												<tr id="v2ray_headtype_kcp_basic_tr" style="display: none;">
+												<tr class="ss-sub" id="v2ray_headtype_kcp_basic_tr" style="display: none;">
 													<th width="35%">
-														<a class="hintstyle" href="javascript:void(0);" onclick="openssHint(37)"><font color="#ffcc00">&nbsp;&nbsp;* kcp伪装类型 (type)</font></a>
+														<a class="hintstyle" href="javascript:void(0);" onclick="openssHint(37)"><font color="#ffcc00">kcp伪装类型 (type)</font></a>
 													</th>
 													<td>
 														<select id="ss_basic_v2ray_headtype_kcp" name="ss_basic_v2ray_headtype_kcp" style="width:164px;margin:0px 0px 0px 2px;" class="input_option" onchange="verifyFields(this, 1);">
@@ -4326,25 +4680,25 @@ function set_cron(action) {
 														</select>
 													</td>
 												</tr>
-												<tr id="v2ray_network_host_basic_tr" style="display: none;">
+												<tr class="ss-sub" id="v2ray_network_host_basic_tr" style="display: none;">
 													<th width="35%">
-														<a class="hintstyle" href="javascript:void(0);" onclick="openssHint(28)"><font color="#ffcc00">&nbsp;&nbsp;* 伪装域名 (host)</font></a>
+														<a class="hintstyle" href="javascript:void(0);" onclick="openssHint(28)"><font color="#ffcc00">伪装域名 (host)</font></a>
 													</th>
 													<td>
 														<input type="text" name="ss_basic_v2ray_network_host" id="ss_basic_v2ray_network_host" class="input_ss_table" style="width:300px;" placeholder="没有请留空" maxlength="300" value=""/>
 													</td>
 												</tr>
-												<tr id="v2ray_network_path_basic_tr" style="display: none;">
+												<tr class="ss-sub" id="v2ray_network_path_basic_tr" style="display: none;">
 													<th width="35%">
-														<a class="hintstyle" href="javascript:void(0);" onclick="openssHint(29)"><font color="#ffcc00">&nbsp;&nbsp;* 路径 (path) | kcp seed</font></a>
+														<a class="hintstyle" href="javascript:void(0);" onclick="openssHint(29)"><font color="#ffcc00">路径 (path) | kcp seed</font></a>
 													</th>
 													<td>
 														<input type="text" name="ss_basic_v2ray_network_path" id="ss_basic_v2ray_network_path" class="input_ss_table" style="width:300px;" placeholder="没有请留空" maxlength="300" value=""/>
 													</td>
 												</tr>
-												<tr id="v2ray_serviceName_basic_tr" style="display: none;">
+												<tr class="ss-sub" id="v2ray_serviceName_basic_tr" style="display: none;">
 													<th width="35%">
-														<a class="hintstyle" href="javascript:void(0);" onclick="openssHint(120)"><font color="#ffcc00">&nbsp;&nbsp;* 服务名称 (ServiceName)</font></a>
+														<a class="hintstyle" href="javascript:void(0);" onclick="openssHint(120)"><font color="#ffcc00">服务名称 (ServiceName)</font></a>
 													</th>
 													<td>
 														<input type="text" name="ss_basic_v2ray_serviceName" id="ss_basic_v2ray_serviceName" class="input_ss_table"  maxlength="300" value=""/>
@@ -4573,42 +4927,36 @@ function set_cron(action) {
 														选择外国DNS&nbsp;&nbsp;<a class="hintstyle" href="javascript:void(0);" onclick="openssHint(26)"><font color="#ffcc00"><u>[说明]</u></font></a>
 													</th>
 													<td>
-														<select id="ss_foreign_dns" name="ss_foreign_dns" class="input_option" onclick="update_visibility();" >
-															<option value="3" selected="">dns2socks</option>
-															<option value="4">ss-tunnel</option>
-															<option value="1">cdns</option>
-															<option value="5">chinadns1</option>
-															<option value="2">chinadns2</option>
-															<option value="6">https_dns_proxy</option>
-															<option value="7">v2ray_dns</option>
-															<option value="8">直连</option>
-															<option value="9">SmartDNS</option>
-															<option value="10">ChinaDNS-NG</option>
-														</select>
-														<input type="text" class="input_ss_table" id="ss_dns2socks_user" name="ss_dns2socks_user" style="width:160px" placeholder="需端口号如：8.8.8.8:53" value="8.8.8.8:53">
-														<input type="text" class="input_ss_table" id="ss_chinadns1_user" name="ss_chinadns1_user" style="width:160px" placeholder="需端口号如：8.8.8.8:53" value="8.8.8.8:53">
-														<input type="text" class="input_ss_table" id="ss_chinadns_user" name="ss_chinadns_user" style="width:160px" placeholder="需端口号如：8.8.8.8:53" value="8.8.8.8:53">
-														<input type="text" class="input_ss_table" id="ss_sstunnel_user" name="ss_sstunnel_user" style="width:160px" placeholder="需端口号如：8.8.8.8:53" value="8.8.8.8:53">
-														<input type="text" class="input_ss_table" id="ss_direct_user" name="ss_direct_user" style="width:160px" placeholder="需端口号如：8.8.8.8#53" value="8.8.8.8#53">
+														<div class="ss-foreign-dns-controls">
+															<select id="ss_foreign_dns" name="ss_foreign_dns" class="input_option" onclick="update_visibility();" >
+																<option value="3" selected="">dns2socks</option>
+																<option value="4">ss-tunnel</option>
+																<option value="1">cdns</option>
+																<option value="5">chinadns1</option>
+																<option value="2">chinadns2</option>
+																<option value="6">https_dns_proxy</option>
+																<option value="7">v2ray_dns</option>
+																<option value="8">直连</option>
+																<option value="9">SmartDNS</option>
+																<option value="10">ChinaDNS-NG</option>
+															</select>
+															<input type="text" class="input_ss_table" id="ss_dns2socks_user" name="ss_dns2socks_user" style="width:160px" placeholder="需端口号如：8.8.8.8:53" value="8.8.8.8:53">
+															<input type="text" class="input_ss_table" id="ss_chinadns1_user" name="ss_chinadns1_user" style="width:160px" placeholder="需端口号如：8.8.8.8:53" value="8.8.8.8:53">
+															<input type="text" class="input_ss_table" id="ss_chinadns_user" name="ss_chinadns_user" style="width:160px" placeholder="需端口号如：8.8.8.8:53" value="8.8.8.8:53">
+															<input type="text" class="input_ss_table" id="ss_sstunnel_user" name="ss_sstunnel_user" style="width:160px" placeholder="需端口号如：8.8.8.8:53" value="8.8.8.8:53">
+															<input type="text" class="input_ss_table" id="ss_direct_user" name="ss_direct_user" style="width:160px" placeholder="需端口号如：8.8.8.8#53" value="8.8.8.8#53">
+														</div>
 														<span id="ss_foreign_dns_note"></span>
-													</td>
-												</tr>
-												<tr id="dns_plan_foreign_game2" style="display: none;">
-												<th width="20%"><a class="hintstyle" href="javascript:void(0);" onclick="openssHint(26)">选择国外DNS</a></th>
-													<td>
-														<select id="ss_game2_dns_foreign" name="ss_game2_dns_foreign" class="input_option" onclick="update_visibility();" disabled="disabled" >
-															<option value="1" selected>koolgame内置</option>
-														</select>
-														<input type="text" class="input_ss_table" id="ss_game2_dns2ss_user" name="ss_game2_dns2ss_user" placeholder="需端口号如：8.8.8.8:53" value="8.8.8.8:53">
-														<br/>
-															<span id="dns_plan_foreign0">默认使用koolgame内置的DNS2SS域名解析</span>
 													</td>
 												</tr>
 												<tr>
 													<th>DNS劫持（原chromecast功能）&nbsp;&nbsp;<a class="hintstyle" href="javascript:void(0);" onclick="openssHint(106)"><font color="#ffcc00"><u>[说明]</u></font></a></th>
 													<td>
-														<select id="ss_basic_dns_hijack" name="ss_basic_dns_hijack" class="input_option" style="width:auto;margin:0px 0px 0px 2px;" onchange="verifyFields(this, 1);">
-															<option value="0">关闭</option>
+														<select id="ss_basic_dns_hijack" name="ss_basic_dns_hijack" class="input_option" onchange="verifyFields(this, 1);">
+															<!-- "关闭"选项已移除：不劫持会让黑白名单里的【域名】条目直接失效
+															     （域名条目靠客户端经本机 dnsmasq 解析时写入 ipset 才生效），
+															     属于把插件的核心分流能力关掉，没有保留的理由。
+															     后端仍保留 0 的分支做兜底，且启动时会把历史存量的 0 迁移成 1。 -->
 															<option value="1" selected>默认（劫持UDP/53，原chromecast）</option>
 															<option value="2">全部（强制TCP/UDP-53+拦DoT/DoH，白名单可靠）</option>
 														</select>
@@ -4641,13 +4989,13 @@ function set_cron(action) {
 # 例如hosts设置：
 address=/weibo.com/2.2.2.2
 # 防DNS劫持设置：
-bogus-nxdomain=220.250.64.18" rows="12" style="width:99%; font-family:'Lucida Console'; font-size:12px;background:#475A5F;color:#FFFFFF;" id="ss_dnsmasq" name="ss_dnsmasq" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" title=""></textarea>
+bogus-nxdomain=220.250.64.18" rows="8" style="width:99%; font-family:'Lucida Console'; font-size:12px;background:#475A5F;color:#FFFFFF;" id="ss_dnsmasq" name="ss_dnsmasq" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" title=""></textarea>
 													</td>
 												</tr>
 												<tr>
 													<th>同步UDP与TCP&nbsp;&nbsp;<a class="hintstyle" href="javascript:void(0);" onclick="openssHint(116)"><font color="#ffcc00"><u>[说明]</u></font></a></th>
 													<td>
-														<select id="ss_basic_udp_sync" name="ss_basic_udp_sync" class="input_option" style="width:auto;margin:0px 0px 0px 2px;" onchange="verifyFields(this, 1);update_visibility();">
+														<select id="ss_basic_udp_sync" name="ss_basic_udp_sync" class="input_option" onchange="verifyFields(this, 1);update_visibility();">
 															<option value="0">关闭</option>
 															<option value="2">仅代理QUIC（低负载，推荐）</option>
 															<option value="3">仅代理QUIC+Game（QUIC+自定义UDP端口）</option>
@@ -4659,56 +5007,101 @@ bogus-nxdomain=220.250.64.18" rows="12" style="width:99%; font-family:'Lucida Co
 													<th>Game Port（UDP）<br><span style="color:#FC0;font-weight:normal;">仅QUIC+Game档生效</span></th>
 													<td>
 														<input type="text" id="ss_basic_udp_sync_game_port" name="ss_basic_udp_sync_game_port" class="input_option" style="width:250px;margin:0px 0px 0px 2px;" maxlength="100" placeholder="如 7777-7778,27015" autocomplete="off" onblur="check_game_port_input();" />
-														<span id="ss_basic_udp_sync_game_port_tip" style="display:none;color:#F46;">格式错误：应如 27015,7777-7778（端口1-65535，总槽位≤15，段占2）</span>
+														<span id="ss_basic_udp_sync_game_port_tip" style="display:none;color:#F46;">格式错误：应如 27015,7777-7778（端口1-65535，总槽位≤15，段占2；不能有前导零，写 7777 而非 07777）</span>
 														<span style="color:#FC0;">游戏的UDP端口，单端口或端口段（-），多个用,隔开；按国内外分流，境外服务器走代理。443无需填写（QUIC已默认代理，重复填写亦无碍）</span>
 													</td>
 												</tr>
 												<tr>
-													<th width="20%">Hysteria2 全局设定&nbsp;&nbsp;<a class="hintstyle" href="javascript:void(0);" onclick="openssHint(118)"><font color="#ffcc00"><u>[说明]</u></font></a><br><span style="color:#FC0;font-weight:normal;">默认不填</span></th>
+											<th width="20%">Hysteria2设定&nbsp;&nbsp;<a class="hintstyle" href="javascript:void(0);" onclick="openssHint(118)"><font color="#ffcc00"><u>[说明]</u></font></a><br><span style="color:#FC0;font-weight:normal;">默认不填</span></th>
 													<td>
-														<div style="line-height:32px;">
-															<span style="display:inline-block;width:70px;">混淆</span>
-															<select id="ss_basic_hy2_obfs_type" name="ss_basic_hy2_obfs_type" class="input_option" style="width:155px;" onchange="updateHy2GlobalForm();">
-																<option value="">关闭</option>
-																<option value="salamander">salamander</option>
-																<option value="gecko">gecko</option>
-															</select>
-															<span id="ss_basic_hy2_obfs_password_span" style="display:none;margin-left:8px;">
-																密码
-																<input type="text" class="input_ss_table" id="ss_basic_hy2_obfs_password" name="ss_basic_hy2_obfs_password" style="width:190px;" placeholder="混淆密码" value="">
-															</span>
-															<br id="ss_basic_hy2_gecko_br" style="display:none;">
-															<span id="ss_basic_hy2_gecko_span" style="display:none;margin-left:70px;">
-																包大小
-																<input type="text" class="input_ss_table" id="ss_basic_hy2_gecko_min" name="ss_basic_hy2_gecko_min" style="width:60px;" placeholder="512" value="">
-																-
-																<input type="text" class="input_ss_table" id="ss_basic_hy2_gecko_max" name="ss_basic_hy2_gecko_max" style="width:60px;" placeholder="1200" value="">
-															</span>
-															<br>
-															<span style="display:inline-block;width:70px;">拥塞控制</span>
-															<select id="ss_basic_hy2_congestion_type" name="ss_basic_hy2_congestion_type" class="input_option" style="width:175px;" onchange="updateHy2GlobalForm();">
-																<option value="">默认(bbr + standard)</option>
-																<option value="bbr">bbr</option>
-																<option value="reno">reno</option>
-															</select>
-															<span id="ss_basic_hy2_bbr_profile_span" style="display:none;margin-left:8px;">
-																BBR模式
-																<select id="ss_basic_hy2_bbr_profile" name="ss_basic_hy2_bbr_profile" class="input_option" style="width:140px;">
-																	<option value="standard">standard</option>
-																	<option value="conservative">conservative</option>
-																	<option value="aggressive">aggressive</option>
-																</select>
-															</span>
-															<br>
-															<span style="display:inline-block;width:70px;">带宽</span>
-															上行
-															<input type="text" class="input_ss_table" id="ss_basic_hy2_bandwidth_up_value" name="ss_basic_hy2_bandwidth_up_value" style="width:70px;" placeholder="100" value="">
-															<span style="margin:0px 12px 0px 4px;">mbps</span>
-															下行
-															<input type="text" class="input_ss_table" id="ss_basic_hy2_bandwidth_down_value" name="ss_basic_hy2_bandwidth_down_value" style="width:70px;" placeholder="200" value="">
-															<span style="margin-left:4px;">mbps</span>
-														</div>
-														<textarea id="ss_basic_hy2_global_json" name="ss_basic_hy2_global_json" style="display:none;"></textarea>
+																							<!-- 改成 grid：原先用 <span style="width:70px"> + <br> 拼伪两栏，各行控件宽度不同时
+									     纵向对不齐（真机问题3）。现在标签列与控件列各自成列，天然对齐。
+									     gecko「包大小」那行原来是 <br id=..._gecko_br> + <span> 两个元素分别 showhide，
+									     grid 下 <br> 无意义，已合并为「标签列+控件列」一行，JS 改为显隐标签列。 -->
+									<div class="ss-hy2">
+										<div class="ss-hy2-row">
+											<span class="ss-hy2-k">混淆</span>
+											<span class="ss-hy2-v">
+												<select id="ss_basic_hy2_obfs_type" name="ss_basic_hy2_obfs_type" class="input_option" style="width:155px;" onchange="updateHy2GlobalForm();">
+													<option value="">关闭</option>
+													<option value="salamander">salamander</option>
+													<option value="gecko">gecko</option>
+												</select>
+											</span>
+										</div>
+										<div id="ss_basic_hy2_obfs_password_span" class="ss-hy2-row" style="display:none;">
+											<span class="ss-hy2-k">密码</span>
+											<span class="ss-hy2-v">
+												<input type="text" class="input_ss_table" id="ss_basic_hy2_obfs_password" name="ss_basic_hy2_obfs_password" style="width:190px;" placeholder="混淆密码" value="">
+											</span>
+										</div>
+										<div id="ss_basic_hy2_gecko_span" class="ss-hy2-row" style="display:none;">
+											<span class="ss-hy2-k">包大小</span>
+											<span class="ss-hy2-v">
+												<input type="text" class="input_ss_table" id="ss_basic_hy2_gecko_min" name="ss_basic_hy2_gecko_min" style="width:60px;" placeholder="512" value="">
+												<label>-</label>
+												<input type="text" class="input_ss_table" id="ss_basic_hy2_gecko_max" name="ss_basic_hy2_gecko_max" style="width:60px;" placeholder="1200" value="">
+											</span>
+										</div>
+										<div class="ss-hy2-row">
+											<span class="ss-hy2-k">拥塞控制</span>
+											<span class="ss-hy2-v ss-hy2-nowrap">
+												<select id="ss_basic_hy2_congestion_type" name="ss_basic_hy2_congestion_type" class="input_option" style="width:175px;" onchange="updateHy2GlobalForm();">
+													<option value="">默认(bbr + standard)</option>
+													<option value="bbr">bbr</option>
+													<option value="reno">reno</option>
+												</select>
+												<span id="ss_basic_hy2_bbr_profile_span" class="ss-hy2-sub" style="display:none;">
+													<label>BBR模式</label>
+													<select id="ss_basic_hy2_bbr_profile" name="ss_basic_hy2_bbr_profile" class="input_option" style="width:140px;">
+														<option value="standard">standard</option>
+														<option value="conservative">conservative</option>
+														<option value="aggressive">aggressive</option>
+													</select>
+												</span>
+											</span>
+										</div>
+										<div class="ss-hy2-row">
+											<span class="ss-hy2-k">带宽</span>
+											<span class="ss-hy2-v">
+												<label>上行</label>
+												<input type="text" class="input_ss_table" id="ss_basic_hy2_bandwidth_up_value" name="ss_basic_hy2_bandwidth_up_value" style="width:70px;" placeholder="100" value="">
+												<label>mbps</label>
+												<label class="ss-hy2-gap">下行</label>
+												<input type="text" class="input_ss_table" id="ss_basic_hy2_bandwidth_down_value" name="ss_basic_hy2_bandwidth_down_value" style="width:70px;" placeholder="200" value="">
+												<label>mbps</label>
+											</span>
+										</div>
+										<div class="ss-hy2-row">
+											<span class="ss-hy2-k">UDP</span>
+											<span class="ss-hy2-v ss-hy2-switch-row">
+												<select id="ss_basic_hy2_udp" name="ss_basic_hy2_udp" class="input_option ss-hy2-switch" onchange="verifyFields(this, 1);">
+													<option value="0" selected>关闭</option>
+													<option value="1">打开</option>
+												</select>
+												<label class="ss-hy2-switch-note" for="ss_basic_hy2_udp">启用透明 UDP 代理，为「同步UDP与TCP」支持</label>
+											</span>
+										</div>
+										<div class="ss-hy2-row">
+											<span class="ss-hy2-k">fastOpen</span>
+											<span class="ss-hy2-v">
+												<select id="ss_basic_hy2_fast_open" name="ss_basic_hy2_fast_open" class="input_option ss-hy2-switch">
+													<option value="0">关闭</option>
+													<option value="1" selected>打开</option>
+												</select>
+											</span>
+										</div>
+										<div class="ss-hy2-row">
+											<span class="ss-hy2-k">lazy</span>
+											<span class="ss-hy2-v">
+												<select id="ss_basic_hy2_lazy" name="ss_basic_hy2_lazy" class="input_option ss-hy2-switch">
+													<option value="0">关闭</option>
+													<option value="1" selected>打开</option>
+												</select>
+											</span>
+										</div>
+									</div>
+									<textarea id="ss_basic_hy2_global_json" name="ss_basic_hy2_global_json" style="display:none;"></textarea>
 													</td>
 												</tr>
 											</table>
@@ -4725,7 +5118,7 @@ bogus-nxdomain=220.250.64.18" rows="12" style="width:99%; font-family:'Lucida Co
 														<textarea placeholder="# 填入不需要走代理的外网ip地址，一行一个，格式（IP/CIDR）如下
 2.2.2.2
 3.3.3.3
-4.4.4.4/24" cols="50" rows="7" id="ss_wan_white_ip" name="ss_wan_white_ip" style="width:99%; font-family:'Lucida Console'; font-size:12px;background:#475A5F;color:#FFFFFF;" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+4.4.4.4/24" cols="50" rows="5" id="ss_wan_white_ip" name="ss_wan_white_ip" style="width:99%; font-family:'Lucida Console'; font-size:12px;background:#475A5F;color:#FFFFFF;" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
 													</td>
 												</tr>
 												<tr id="ss_wan_white_domain_tr">
@@ -4737,7 +5130,7 @@ bogus-nxdomain=220.250.64.18" rows="12" style="width:99%; font-family:'Lucida Co
 														<textarea placeholder="# 填入不需要走代理的域名，一行一个，格式如下：
 google.com
 facebook.com
-# 需要清空电脑DNS缓存，才能立即看到效果。" cols="50" rows="7" id="ss_wan_white_domain" name="ss_wan_white_domain" style="width:99%; font-family:'Lucida Console'; font-size:12px;background:#475A5F;color:#FFFFFF;" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+# 需要清空电脑DNS缓存，才能立即看到效果。" cols="50" rows="5" id="ss_wan_white_domain" name="ss_wan_white_domain" style="width:99%; font-family:'Lucida Console'; font-size:12px;background:#475A5F;color:#FFFFFF;" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
 													</td>
 												</tr>
 												<tr id="ss_wan_black_ip_tr">
@@ -4749,7 +5142,7 @@ facebook.com
 														<textarea placeholder="# 填入需要强制走代理的外网ip地址，一行一个，格式（IP/CIDR）如下：
 5.5.5.5
 6.6.6.6
-7.7.7.7/8" cols="50" rows="7" id="ss_wan_black_ip" name="ss_wan_black_ip" style="width:99%; font-family:'Lucida Console'; font-size:12px;background:#475A5F;color:#FFFFFF;" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+7.7.7.7/8" cols="50" rows="5" id="ss_wan_black_ip" name="ss_wan_black_ip" style="width:99%; font-family:'Lucida Console'; font-size:12px;background:#475A5F;color:#FFFFFF;" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
 													</td>
 												</tr>
 												<tr id="ss_wan_black_domain_tr">
@@ -4761,7 +5154,7 @@ facebook.com
 														<textarea placeholder="# 填入需要强制走代理的域名，一行一个，格式如下：
 baidu.com
 taobao.com
-# 需要清空电脑DNS缓存，才能立即看到效果。" cols="50" rows="7" id="ss_wan_black_domain" name="ss_wan_black_domain" style="width:99%; font-family:'Lucida Console'; font-size:12px;background:#475A5F;color:#FFFFFF;" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+# 需要清空电脑DNS缓存，才能立即看到效果。" cols="50" rows="5" id="ss_wan_black_domain" name="ss_wan_black_domain" style="width:99%; font-family:'Lucida Console'; font-size:12px;background:#475A5F;color:#FFFFFF;" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
 													</td>
 												</tr>
 											</table>
@@ -4855,10 +5248,12 @@ taobao.com
 														<th style="width:60px;">添加/删除</th>
 													</tr>
 													<tr>
-														<td>
-															<input type="text" maxlength="15" class="input_15_table" id="ss_acl_ip" name="ss_acl_ip" align="left" onkeypress="return validator.isIPAddr(this, event)" style="float:left;" autocomplete="off" onClick="hideClients_Block();" autocorrect="off" autocapitalize="off">
-															<img id="pull_arrow" height="14px;" src="images/arrow-down.gif" align="right" onclick="pullLANIPList(this);" title="<#select_IP#>">
-															<div id="ClientList_Block" class="clientlist_dropdown" style="margin-left:2px;margin-top:25px;"></div>
+												<td class="ss-acl-ip-cell">
+													<div class="ss-acl-ip-control">
+														<input type="text" maxlength="15" class="input_15_table" id="ss_acl_ip" name="ss_acl_ip" align="left" onkeypress="return validator.isIPAddr(this, event)" autocomplete="off" onClick="hideClients_Block();" autocorrect="off" autocapitalize="off">
+												<span class="ss-acl-ip-trigger"><img id="pull_arrow" class="ss-acl-ip-arrow" src="images/arrow-down.gif" onclick="pullLANIPList(this);" title="<#select_IP#>" alt=""></span>
+													</div>
+													<div id="ClientList_Block" class="clientlist_dropdown"></div>
 														</td>
 														<td>
 															<input type="text" id="ss_acl_name" name="ss_acl_name" class="input_ss_table" maxlength="50" style="width:140px;" placeholder="" />

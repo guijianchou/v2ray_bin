@@ -753,36 +753,248 @@ create_naive_json(){
 		EOF
 }
 
-create_hy2_json(){
-	rm -f /tmp/tmp_hysteria.json /tmp/tmp_hysteria_global.json /tmp/tmp_hysteria.final.json
+hy2_webtest_core_version(){
+	/koolshare/bin/hysteria version 2>&1 | awk '/Version:/ {gsub(/^v/, "", $2); print $2; exit}'
+}
 
-	cat >/tmp/tmp_hysteria.json <<-EOF
-				{
-				"server": "${array1}:${array2}",
-				"auth": "${array3}",
-				"tls": {
-					"sni": "$(eval echo \$ssconf_basic_trojan_sni_$nu)",
-					"insecure": $(get_function_switch $(eval echo \$ssconf_basic_allowinsecure_$nu))
-				},
-				"fastOpen": true,
-				"lazy": true,
-				"socks5": {
-					"listen": "127.0.0.1:23458"
+hy2_webtest_validate_ipv4(){
+	awk -v value="$1" 'BEGIN {
+		if (split(value, octets, ".") != 4) exit 1
+		for (i = 1; i <= 4; i++) {
+			if (octets[i] !~ /^[0-9]+$/ || (length(octets[i]) > 1 && substr(octets[i], 1, 1) == "0") || octets[i] > 255) exit 1
+		}
+	}'
+}
+
+hy2_webtest_validate_server_host(){
+	local host="$1"
+	local ipv6=""
+	local ipv4_tail=""
+	local domain=""
+	local old_ifs="$IFS"
+	local label=""
+	[ -n "$host" ] && [ ${#host} -le 254 ] || return 1
+	case "$host" in
+		\[*\])
+			ipv6="${host#\[}"
+			ipv6="${ipv6%\]}"
+			case "$ipv6" in
+				''|*[!0-9A-Fa-f:.]*|*:::*) return 1 ;;
+			esac
+			case "$ipv6" in
+				*.*)
+					ipv4_tail="${ipv6##*:}"
+					[ "$ipv4_tail" != "$ipv6" ] && hy2_webtest_validate_ipv4 "$ipv4_tail" || return 1
+					ipv6="${ipv6%:*}:0:0"
+					;;
+			esac
+			awk -v value="$ipv6" 'BEGIN {
+				if (index(value, ":") == 0) exit 1
+				rest = value
+				compressed = 0
+				while ((pos = index(rest, "::")) > 0) {
+					compressed++
+					rest = substr(rest, pos + 2)
 				}
-			}
-	EOF
+				if (compressed > 1) exit 1
+				n = split(value, parts, ":")
+				groups = 0
+				for (i = 1; i <= n; i++) {
+					if (length(parts[i]) == 0) continue
+					if (length(parts[i]) > 4 || parts[i] !~ /^[0-9A-Fa-f]+$/) exit 1
+					groups++
+				}
+				if (compressed == 1) exit !(groups < 8)
+				exit !(groups == 8)
+			}' || return 1
+			;;
+		*'['*|*']'*|*:*) return 1 ;;
+		*)
+			domain="$host"
+			case "$domain" in
+				*.) domain="${domain%.}" ;;
+			esac
+			[ -n "$domain" ] && [ ${#domain} -le 253 ] || return 1
+			case "$domain" in
+				*[!0-9.]*)
+					case "$domain" in
+						.*|*.|*..*|*[!A-Za-z0-9.-]*) return 1 ;;
+					esac
+					IFS='.'
+					set -- $domain
+					IFS="$old_ifs"
+					for label in "$@"; do
+						[ ${#label} -le 63 ] || return 1
+						case "$label" in
+							''|-*|*-|*[!A-Za-z0-9-]*) return 1 ;;
+						esac
+					done
+					;;
+				*) hy2_webtest_validate_ipv4 "$domain" || return 1 ;;
+			esac
+			;;
+	esac
+	return 0
+}
 
-	hy2_global_json="$(dbus get ss_basic_hy2_global_json)"
-	if [ -n "$hy2_global_json" ]; then
-		echo "$hy2_global_json" | base64_decode > /tmp/tmp_hysteria_global.json
-		if jq -e 'type == "object" and length > 0 and (length == ([keys_unsorted[] | select(. == "obfs" or . == "congestion" or . == "bandwidth")] | length))' /tmp/tmp_hysteria_global.json >/dev/null 2>&1; then
-			jq -s '.[0] * .[1]' /tmp/tmp_hysteria.json /tmp/tmp_hysteria_global.json > /tmp/tmp_hysteria.final.json && mv /tmp/tmp_hysteria.final.json /tmp/tmp_hysteria.json
-			echo_date "webtest: Hysteria2 global config merged."
-		else
-			echo_date "webtest: Hysteria2 global config invalid, skipped."
+hy2_webtest_validate_port_spec(){
+	local port_spec="$1"
+	local old_ifs="$IFS"
+	local item=""
+	local start=""
+	local end=""
+	case "$port_spec" in
+		''|*[!0-9,-]*|,*|*,|*,,*) echo_date "webtest: Hysteria2 端口必须是单端口或逗号分隔的端口段。"; return 1 ;;
+	esac
+	IFS=','
+	set -- $port_spec
+	IFS="$old_ifs"
+	for item in "$@"; do
+		case "$item" in
+			''|*[!0-9-]*|*-*-*|-*|*-) echo_date "webtest: Hysteria2 端口段格式不合法。"; return 1 ;;
+			*-*) start="${item%%-*}"; end="${item#*-}" ;;
+			*) start="$item"; end="$item" ;;
+		esac
+		if ! awk -v start="$start" -v end="$end" 'BEGIN { exit !(start >= 1 && start <= 65535 && end >= start && end <= 65535) }'; then
+			echo_date "webtest: Hysteria2 端口端点必须递增且位于 1-65535。"
+			return 1
 		fi
-		rm -f /tmp/tmp_hysteria_global.json /tmp/tmp_hysteria.final.json
+	done
+	return 0
+}
+
+hy2_webtest_validate_global_json(){
+	local config_file="$1"
+	local core_version=""
+	if ! jq -e '
+		type == "object" and length > 0 and
+		(length == ([keys[] | select(. == "obfs" or . == "congestion" or . == "bandwidth")] | length)) and
+		((has("obfs") | not) or (.obfs |
+			type == "object" and
+			(if .type == "salamander" then
+				length == 2 and
+				(length == ([keys[] | select(. == "type" or . == "salamander")] | length)) and
+				(.salamander | type == "object" and length == 1 and (.password | type == "string" and (@base64 | length) >= 8))
+			elif .type == "gecko" then
+				(length == ([keys[] | select(. == "type" or . == "gecko")] | length)) and
+				(.gecko |
+					type == "object" and
+					(length == ([keys[] | select(. == "password" or . == "minPacketSize" or . == "maxPacketSize")] | length)) and
+					(.password | type == "string" and (@base64 | length) >= 8) and
+					((has("minPacketSize") | not) or ((.minPacketSize | type) == "number" and (.minPacketSize % 1) == 0 and .minPacketSize > 0)) and
+					((has("maxPacketSize") | not) or ((.maxPacketSize | type) == "number" and (.maxPacketSize % 1) == 0 and .maxPacketSize > 0)) and
+					((.minPacketSize // 512) <= (.maxPacketSize // 1200)) and
+					((.maxPacketSize // 1200) <= 2048))
+			else false end))) and
+		((has("congestion") | not) or (.congestion |
+			type == "object" and
+			(if .type == "bbr" then
+				(length == ([keys[] | select(. == "type" or . == "bbrProfile")] | length)) and
+				((has("bbrProfile") | not) or (.bbrProfile == "standard" or .bbrProfile == "conservative" or .bbrProfile == "aggressive"))
+			elif .type == "reno" then
+				length == 1 and (length == ([keys[] | select(. == "type")] | length))
+			else false end))) and
+		((has("bandwidth") | not) or (.bandwidth |
+			type == "object" and length > 0 and
+			(length == ([keys[] | select(. == "up" or . == "down")] | length)) and
+			((has("up") | not) or (.up | type) == "string") and
+			((has("down") | not) or (.down | type) == "string")))
+	' "$config_file" >/dev/null 2>&1; then
+		echo_date "webtest: Hysteria2 设定参数不合法。"
+		return 1
 	fi
+	if ! jq -r '.bandwidth.up // empty, .bandwidth.down // empty' "$config_file" 2>/dev/null |
+		awk '/^[1-9][0-9]*[[:space:]]+mbps$/ { next } { exit 1 }'; then
+		echo_date "webtest: Hysteria2 带宽必须使用正整数加 mbps。"
+		return 1
+	fi
+	if jq -e 'has("congestion")' "$config_file" >/dev/null 2>&1; then
+		core_version=`hy2_webtest_core_version`
+		if [ -z "$core_version" ] || [ "`versioncmp "$core_version" 2.8.1`" == "1" ]; then
+			echo_date "webtest: congestion 需要 Hysteria v2.8.1+，当前版本为 ${core_version:-未知}。"
+			return 1
+		fi
+	fi
+	if jq -e '.obfs.type == "gecko"' "$config_file" >/dev/null 2>&1; then
+		[ -n "$core_version" ] || core_version=`hy2_webtest_core_version`
+		if [ -z "$core_version" ] || [ "`versioncmp "$core_version" 2.9.2`" == "1" ]; then
+			echo_date "webtest: gecko 需要 Hysteria v2.9.2+，当前版本为 ${core_version:-未知}。"
+			return 1
+		fi
+	fi
+	return 0
+}
+
+create_hy2_json(){
+	local hy2_fast_open="$(dbus get ss_basic_hy2_fast_open)"
+	local hy2_lazy="$(dbus get ss_basic_hy2_lazy)"
+	local hy2_insecure="$(eval echo \$ssconf_basic_allowinsecure_$nu)"
+	local hy2_global_json="$(dbus get ss_basic_hy2_global_json)"
+	rm -f /tmp/tmp_hysteria.json /tmp/tmp_hysteria.base.json /tmp/tmp_hysteria_global.json /tmp/tmp_hysteria.final.json
+	[ -n "$hy2_fast_open" ] || hy2_fast_open=1
+	[ -n "$hy2_lazy" ] || hy2_lazy=1
+	[ -n "$hy2_insecure" ] || hy2_insecure=0
+	case "$hy2_fast_open:$hy2_lazy:$hy2_insecure" in
+		0:0:0|0:0:1|0:1:0|0:1:1|1:0:0|1:0:1|1:1:0|1:1:1) ;;
+		*) echo_date "webtest: Hysteria2 开关参数不合法。"; return 1 ;;
+	esac
+	if [ -z "$array1" ] || [ -z "$array3" ]; then
+		echo_date "webtest: Hysteria2 服务器、端口或认证密码不合法。"
+		return 1
+	fi
+	if ! hy2_webtest_validate_server_host "$array1"; then
+		echo_date "webtest: Hysteria2 服务器地址必须是合法域名、IPv4 或方括号 IPv6。"
+		return 1
+	fi
+	hy2_webtest_validate_port_spec "$array2" || return 1
+
+	if ! jq -n \
+		--arg server "${array1}:${array2}" \
+		--arg auth "$array3" \
+		--arg sni "$(eval echo \$ssconf_basic_trojan_sni_$nu)" \
+		--argjson insecure "$(get_function_switch "$hy2_insecure")" \
+		--argjson fast_open "$(get_function_switch "$hy2_fast_open")" \
+		--argjson lazy "$(get_function_switch "$hy2_lazy")" '
+		{
+			server: $server,
+			auth: $auth,
+			tls: {sni: $sni, insecure: $insecure},
+			fastOpen: $fast_open,
+			lazy: $lazy,
+			socks5: {listen: "127.0.0.1:23458"}
+		}
+	' >/tmp/tmp_hysteria.base.json; then
+		echo_date "webtest: Hysteria2 配置生成失败。"
+		return 1
+	fi
+
+	if [ -n "$hy2_global_json" ]; then
+		printf '%s' "$hy2_global_json" | base64_decode > /tmp/tmp_hysteria_global.json
+		hy2_webtest_validate_global_json /tmp/tmp_hysteria_global.json || return 1
+		jq -s '.[0] * .[1]' /tmp/tmp_hysteria.base.json /tmp/tmp_hysteria_global.json > /tmp/tmp_hysteria.final.json || return 1
+	else
+		if ! mv /tmp/tmp_hysteria.base.json /tmp/tmp_hysteria.final.json; then
+			echo_date "webtest: Hysteria2 基础配置临时文件写入失败。"
+			return 1
+		fi
+	fi
+	if ! jq -e '
+		type == "object" and
+		(.server | type == "string" and length > 0) and
+		(.auth | type == "string" and length > 0) and
+		(.tls.insecure | type == "boolean") and
+		(.fastOpen | type == "boolean") and (.lazy | type == "boolean") and
+		(.socks5.listen | type == "string" and length > 0)
+	' /tmp/tmp_hysteria.final.json >/dev/null 2>&1; then
+		echo_date "webtest: Hysteria2 最终配置校验失败。"
+		return 1
+	fi
+	if ! mv /tmp/tmp_hysteria.final.json /tmp/tmp_hysteria.json; then
+		echo_date "webtest: Hysteria2 最终配置写入失败。"
+		return 1
+	fi
+	rm -f /tmp/tmp_hysteria.base.json /tmp/tmp_hysteria_global.json
+	return 0
 }
 
 create_ss2022_json(){
@@ -953,12 +1165,15 @@ start_webtest(){
 			rm -f /tmp/tmp_v2ray.json /tmp/v2ray_webtest_log.log
 
 		elif [ "$array12" == "4" -a "$array14" == "Hysteria2" ];then   #Hysteria2
-			create_hy2_json 
-			export QUIC_GO_DISABLE_ECN=true
-			hysteria -c /tmp/tmp_hysteria.json -l error --disable-update-check  >/dev/null 2>&1 &
-			speed_test_curl
-			kill -9 `ps|grep hysteria|grep 'tmp_hysteria'|awk '{print $1}'` >/dev/null 2>&1	
-			rm -f /tmp/tmp_hysteria.json
+			if create_hy2_json; then
+				export QUIC_GO_DISABLE_ECN=true
+				hysteria -c /tmp/tmp_hysteria.json -l error --disable-update-check  >/dev/null 2>&1 &
+				speed_test_curl
+				kill -9 `ps|grep hysteria|grep 'tmp_hysteria'|awk '{print $1}'` >/dev/null 2>&1
+			else
+				dbus set ssconf_basic_webtest_$nu="failed"
+			fi
+			rm -f /tmp/tmp_hysteria.json /tmp/tmp_hysteria.base.json /tmp/tmp_hysteria_global.json /tmp/tmp_hysteria.final.json
 
 		elif [ "$array12" == "4" -a "$array14" == "AnyTLS" ];then   #AnyTLS
 			if [ -n "$(eval echo \$ssconf_basic_trojan_sni_$nu)" ]; then

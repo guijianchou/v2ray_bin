@@ -100,7 +100,7 @@ function browser_compatibility1(){
 
 function menu_hook() {
 	browser_compatibility1();
-	tabtitle[tabtitle.length - 1] = new Array("", "科学上网设置", "负载均衡设置", "Xray本地聚合", "Socks5设置", "__INHERIT__");
+	tabtitle[tabtitle.length - 1] = new Array("", "Shadowsocks 设置", "负载均衡设置", "Xray本地聚合", "Socks5设置", "__INHERIT__");
 	tablink[tablink.length - 1] = new Array("", "Main_Ss_Content.asp", "Main_Ss_LoadBlance.asp", "Main_SsXray_Aggregate.asp", "Main_SsLocal_Content.asp");
 }
 
@@ -274,7 +274,7 @@ function LoadingSSProgress(seconds) {
 	action = db_ss["ss_basic_action"];
 	document.getElementById("LoadingBar").style.visibility = "visible";
 	if (action == 0) {
-		document.getElementById("loading_block3").innerHTML = "科学上网功能关闭中 ..."
+		document.getElementById("loading_block3").innerHTML = "Shadowsocks 功能关闭中 ..."
 		$("#loading_block2").html("<li><font color='#ffcc00'><a href='https://github.com/guijianchou/v2ray_bin_lite' target='_blank'></font>插件工作有问题？请到<em>GITHUB</em>提交issue...</font></li>");
 	} else if (action == 1) {
 		document.getElementById("loading_block3").innerHTML = "gfwlist模式启用中 ..."
@@ -292,17 +292,17 @@ function LoadingSSProgress(seconds) {
 		document.getElementById("loading_block3").innerHTML = "回国模式启用中 ..."
 		$("#loading_block2").html("<li><font color='#ffcc00'>请勿刷新本页面，正在应用配置...</font></li>");
 	} else if (action == 7) {
-		document.getElementById("loading_block3").innerHTML = "科学上网插件升级 ..."
+		document.getElementById("loading_block3").innerHTML = "Shadowsocks 插件升级 ..."
 		$("#loading_block2").html("<li><font color='#ffcc00'>请勿刷新本页面，等待脚本运行完毕后再刷新！</font></li><li><font color='#ffcc00'>升级服务会自动检测最新版本并下载升级...</font></li>");
 	} else if (action == 8) {
-		document.getElementById("loading_block3").innerHTML = "科学上网规则更新 ..."
+		document.getElementById("loading_block3").innerHTML = "Shadowsocks 规则更新 ..."
 		$("#loading_block2").html("<li><font color='#ffcc00'>请勿刷新本页面，等待脚本运行完毕后再刷新！</font></li><li><font color='#ffcc00'>正在自动检测github上的更新...</font></li>");
 	} else if (action == 9) {
-		document.getElementById("loading_block3").innerHTML = "恢复科学上网配置 ..."
+		document.getElementById("loading_block3").innerHTML = "恢复 Shadowsocks 配置 ..."
 		$("#loading_block2").html("<li><font color='#ffcc00'>请勿刷新本页面，配置恢复后需要重新提交！</font></li><li><font color='#ffcc00'>恢复配置中...</font></li>");
 	} else if (action == 10) {
-		document.getElementById("loading_block3").innerHTML = "清空科学上网配置 ..."
-		$("#loading_block2").html("<li><font color='#ffcc00'>请勿刷新本页面，正在清空科学上网配置...</font></li>");
+		document.getElementById("loading_block3").innerHTML = "清空 Shadowsocks 配置 ..."
+		$("#loading_block2").html("<li><font color='#ffcc00'>请勿刷新本页面，正在清空 Shadowsocks 配置...</font></li>");
 	} else if (action == 11) {
 		document.getElementById("loading_block3").innerHTML = "插件打包中 ..."
 		$("#loading_block2").html("<li><font color='#ffcc00'>打包时间较长，请稍等...</font></li><li><font color='#ffcc00'>打包的插件可以用于离线安装...</font></li>");
@@ -633,7 +633,7 @@ function openssHint(itemNum) {
 		width = "750px";
 		statusmenu = "<b>控制 UDP 流量是否随 TCP 一起走代理。</b>"
 		statusmenu += "</br></br> 插件默认只有选择游戏模式后 UDP 才会走代理；此选项可让大陆白名单等模式的 UDP 也按 chnroute 分流。"
-		statusmenu += "</br></br><b>关闭：</b>UDP 不走代理（默认）。此时境外 QUIC/HTTP3 由防泄漏规则拦截首包，强制浏览器回退 TCP 走代理。"
+		statusmenu += "</br></br><b>关闭：</b>UDP 不走代理（默认）。<font color='#ffcc00'>仅在【大陆白名单】或【游戏模式】下</font>，境外 QUIC/HTTP3 会被 filter 层防泄漏规则拦截首包，强制浏览器回退 TCP 走代理；<font color='#ffcc00'>gfwlist / 全局 / 回国模式没有这道兜底</font>，此档下境外 UDP（含 QUIC）为明文直连。要在这些模式下覆盖 QUIC，请选「仅代理 QUIC」。"
 		statusmenu += "</br></br><b>仅代理 QUIC（推荐）：</b>只把 QUIC（UDP/443）按 chnroute 分流走代理，其余 UDP（BT、视频、游戏等）一律直连。既让 Google/YouTube 等 HTTP/3 站点正常走代理，又避免大流量 UDP 涌入 TPROXY，路由器负载低。"
 		statusmenu += "</br></br><b>仅代理 QUIC+Game：</b>在仅代理 QUIC 的基础上，把 Game Port 输入框指定的 UDP 端口一并按 chnroute 分流（境外游戏服走代理，国内直连）。端口格式：单端口或端口段（低-高），逗号隔开，如 27015,7777-7778（方舟生存飞升 ASA）；保存与加载前均做语法检查，非法则不下发规则；留空时行为与仅代理 QUIC 完全一致。443 无需填入（QUIC 档已默认覆盖，重复填入亦无碍，仅多一次无害的规则匹配）。"
 		statusmenu += "</br></br><b>全量 UDP：</b>所有 UDP 都按 chnroute 分流走代理。分流最彻底，但逐包处理 + 用户态转发，路由器 CPU 负载最高，BT/P2P 场景尤其明显。"
@@ -649,13 +649,16 @@ function openssHint(itemNum) {
 		return overlib(statusmenu, OFFSETX, -560, OFFSETY, -90, LEFT, STICKY, WIDTH, 'width', CAPTION, _caption, CLOSETITLE, '');
 	}  else if (itemNum == 118) {
 		width = "750px";
-		statusmenu = "<b>Hysteria2 全局设定默认不填。</b>"
+		statusmenu = "<b>Hysteria2设定默认不填。</b>"
 		statusmenu += "</br></br>所有项目都留空时，不会生成全局 JSON，也不会覆盖节点配置。"
-		statusmenu += "</br></br><font color='#CC0066'><b>混淆：</b></font>支持 salamander/gecko，启用后必须填写和服务端一致的密码；gecko 可选最小/最大包大小。"
-		statusmenu += "</br></br><font color='#CC0066'><b>拥塞控制：</b></font>默认使用 bbr + standard，也可以选择 bbr/reno；bbr 可选 standard、conservative、aggressive。"
+		statusmenu += "</br></br><font color='#CC0066'><b>混淆：</b></font>支持 salamander/gecko，启用后必须填写和服务端一致的密码；gecko 可选最小/最大包大小，要求 Hysteria v2.9.2+。"
+		statusmenu += "</br></br><font color='#CC0066'><b>拥塞控制：</b></font>默认使用 bbr + standard，也可以选择 bbr/reno；bbr 可选 standard、conservative、aggressive，要求 Hysteria v2.8.1+。"
 		statusmenu += "</br></br><font color='#CC0066'><b>带宽：</b></font>填写上行/下行 mbps 后，对应方向会使用 Brutal 速率控制；未填写的方向继续使用拥塞控制。"
+		statusmenu += "</br></br><b>UDP 开关（udpTProxy）</b>：打开后 hy2 节点才会声明透明 UDP 入站，「同步UDP与TCP」才能在该节点上生效；关闭时只做 TCP 透明代理。默认关闭是出于路由器负载考虑。"
+		statusmenu += "</br></br><b>fastOpen / lazy：</b>控制 Hysteria 官方客户端的快速打开与延迟连接参数；为保持旧版本行为，两项默认打开。"
+		statusmenu += "</br></br>若当前构建未编入 TPROXY 支持，插件会自动移除 udpTProxy 重试并回退纯 TCP，TCP 代理不受影响。"
 		statusmenu += "</br></br>参考：<a href='https://v2.hysteria.network/docs/advanced/Full-Client-Config/' target='_blank'><u><font color='#00F'>Hysteria2 官方客户端配置文档</font></u></a>"
-		_caption = "Hysteria2 全局设定";
+		_caption = "Hysteria2设定";
 		return overlib(statusmenu, OFFSETX, -560, OFFSETY, -90, LEFT, STICKY, WIDTH, 'width', CAPTION, _caption, CLOSETITLE, '');
 	}
 	else if (itemNum == 31) {
@@ -777,7 +780,7 @@ function openssHint(itemNum) {
 		_caption = "说明：";
 	} else if (itemNum == 106) {
 		width = "600px";
-		statusmenu = "DNS劫持（原chromecast功能）.<br />&nbsp;&nbsp;&nbsp;&nbsp;把局域网客户端的DNS解析强制交给路由器dnsmasq，避免DNS污染；同时也是“黑白名单/大陆白名单”可靠生效的前提——白名单域名靠dnsmasq解析时把IP写入白名单集合，客户端若绕过dnsmasq，白名单域名的真实IP就不会被放行而仍走代理。<br />&nbsp;&nbsp;&nbsp;&nbsp;<b>三个档位：</b><br />&nbsp;&nbsp;&nbsp;&nbsp;<b>关闭</b>：不劫持，客户端可自定义DNS。<br />&nbsp;&nbsp;&nbsp;&nbsp;<b>默认（原chromecast）</b>：只把明文 UDP/53 劫持到路由器DNS。对付设备手动设8.8.8.8等明文DNS足够，但挡不住浏览器/系统的DoH/DoT。<br />&nbsp;&nbsp;&nbsp;&nbsp;<b>全部（推荐用于大陆白名单）</b>：在“默认”基础上再劫持 TCP/53，并拦截 DoT(853) 与常见 DoH 解析器IP的443，逼客户端回退明文DNS→被路由器接管。这样白名单域名（含Cloudflare/CDN站）连接的真实IP才能可靠进入白名单直连，解决“加了白名单仍走代理/CF盾显示代理出口IP”。代价：会接管设备上自设的私有DNS/DoH。<br />&nbsp;&nbsp;&nbsp;&nbsp;<b>出错回退</b>：仅当劫持规则写入失败时自动回退“默认”；劫持与dnsmasq运行状态解耦（含替换为dnsmasq-fastlookup的场景），dnsmasq重启间隙由客户端重试自愈。"
+		statusmenu = "DNS劫持（原chromecast功能）.<br />&nbsp;&nbsp;&nbsp;&nbsp;把局域网客户端的DNS解析强制交给路由器dnsmasq，避免DNS污染；同时也是“黑白名单/大陆白名单”可靠生效的前提——白名单域名靠dnsmasq解析时把IP写入白名单集合，客户端若绕过dnsmasq，白名单域名的真实IP就不会被放行而仍走代理。<br />&nbsp;&nbsp;&nbsp;&nbsp;<b>两个档位（原“关闭”档已移除：不劫持会让黑白名单里的域名条目直接失效）：</b><br />&nbsp;&nbsp;&nbsp;&nbsp;<b>默认（原chromecast）</b>：只把明文 UDP/53 劫持到路由器DNS。对付设备手动设8.8.8.8等明文DNS足够，但挡不住浏览器/系统的DoH/DoT。<br />&nbsp;&nbsp;&nbsp;&nbsp;<b>全部（推荐用于大陆白名单）</b>：在“默认”基础上再劫持 TCP/53，并拦截 DoT(853) 与常见 DoH 解析器IP的443，逼客户端回退明文DNS→被路由器接管。这样白名单域名（含Cloudflare/CDN站）连接的真实IP才能可靠进入白名单直连，解决“加了白名单仍走代理/CF盾显示代理出口IP”。代价：会接管设备上自设的私有DNS/DoH。<br />&nbsp;&nbsp;&nbsp;&nbsp;<b>出错回退</b>：53改道规则未能完整写入（UDP+TCP 的 AND 判据），或本机dnsmasq未就绪时，自动回退“默认”档，并在主界面状态栏显示“已回退”及原因。dnsmasq未就绪时会先尝试卸掉dnsmasq-fastlookup回退原版再重试。<br />&nbsp;&nbsp;&nbsp;&nbsp;<b>解析后备</b>：本档下dnsmasq的默认上游会加一条国内DNS作fallback（strict-order语义：仅当经隧道的国外解析器不响应时才启用，不是并发竞速，所以不会让国外域名拿到被污染的国内应答）。不加的话，凡是既不在gfwlist也不在cdn列表里的域名，解析都要经隧道出国一趟且没有任何退路，隧道抖动时表现为“流量本身直连的网页偶尔卡住、等一会儿才刷出来”。"
 		_caption = "说明：";
 	} else if (itemNum == 107) {
 		width = "600px";

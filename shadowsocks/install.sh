@@ -111,8 +111,19 @@ echo_date 创建一些二进制文件的软链接！
 
 echo_date 设置一些默认值
 [ -z "$ss_dns_china" ] && dbus set ss_dns_china=11
-[ -z "$ss_dns_foreign" ] && dbus set ss_dns_foreign=1
 [ -z "$ss_basic_ss_v2ray_plugin" ] && dbus set ss_basic_ss_v2ray_plugin=0
+# 这两个键的网页默认值写在 <option ... selected> 里，而后端读到空值时会落到"关闭"分支。
+# 不在这里补默认值的话，首装后界面显示"默认/关闭"、实际生效却是另一回事（DNS劫持尤其明显：
+# 界面写着"默认（劫持UDP/53）"，chromecast 却走 *) 分支打印"DNS劫持功能未开启"），
+# 而本脚本收尾会自动 restart 插件，用户在点过一次"提交"之前一直处于这个错位状态。
+[ -z "$ss_basic_dns_hijack" ] && dbus set ss_basic_dns_hijack=1
+[ -z "$ss_basic_udp_sync" ] && dbus set ss_basic_udp_sync=0
+# Hysteria2 的透明UDP入站默认关：hy2 是QUIC协议、加解密开销远大于TCP类协议，
+# 把UDP也压到同一条隧道上，弱路由器更容易先撞CPU上限。要用请在界面上显式打开。
+[ -z "$ss_basic_hy2_udp" ] && dbus set ss_basic_hy2_udp=0
+# 旧版本生成器固定写入 true；升级后延续原行为，避免新增开关改变已验证配置。
+[ -z "$ss_basic_hy2_fast_open" ] && dbus set ss_basic_hy2_fast_open=1
+[ -z "$ss_basic_hy2_lazy" ] && dbus set ss_basic_hy2_lazy=1
 [ -z "$ss_acl_default_mode" ] && [ -n "$ss_basic_mode" ] && dbus set ss_acl_default_mode="$ss_basic_mode"
 [ -z "$ss_acl_default_mode" ] && [ -z "$ss_basic_mode" ] && dbus set ss_acl_default_mode=1
 [ -z "$ss_acl_default_port" ] && dbus set ss_acl_default_port=all
@@ -120,14 +131,16 @@ echo_date 设置一些默认值
 
 # 移除一些没用的值
 dbus remove ss_basic_version
+# 死键：全项目无人读取（真键是 ss_foreign_dns），历史版本误写，清掉避免误导
+dbus remove ss_dns_foreign
 
 # 离线安装时设置软件中心内储存的版本号和连接
 CUR_VERSION=`cat /koolshare/ss/version`
 dbus set ss_basic_version_local="$CUR_VERSION"
 dbus set softcenter_module_shadowsocks_install="4"
 dbus set softcenter_module_shadowsocks_version="$CUR_VERSION"
-dbus set softcenter_module_shadowsocks_title="科学上网"
-dbus set softcenter_module_shadowsocks_description="科学上网 for merlin armv7l 380"
+dbus set softcenter_module_shadowsocks_title="Shadowsocks"
+dbus set softcenter_module_shadowsocks_description="Shadowsocks for merlin armv7l 380"
 dbus set softcenter_module_shadowsocks_home_url="Main_Ss_Content.asp"
 
 

@@ -35,8 +35,26 @@ rm -rf /koolshare/res/ss_udp_status.htm
 rm -rf /koolshare/init.d/S89Socks5.sh
 
 # remove start up command
-sed -i '/ssconfig.sh/d' /koolshare/scripts/wan-start >/dev/null 2>&1
-sed -i '/ssconfig.sh/d' /koolshare/scripts/nat-start >/dev/null 2>&1
+# auto_start() 写的是 /jffs/scripts/ 下的 nat-start 与 wan-start，不是 /koolshare/scripts/：
+#   nat-start  ← `sed -i '2a sh /koolshare/ss/ssconfig.sh'`
+#   wan-start  ← `sed -i '2a sh /koolshare/scripts/ss_config.sh'`
+# 上游这两行既写错了目录、又用 `ssconfig.sh` 去匹配 wan-start 里的 `ss_config.sh`
+# （下划线对不上），结果卸载后两条钩子原样留在固件里，每次开机/拨号都去跑已被删掉的脚本。
+# 保留对 /koolshare/scripts 的清理，兼容历史版本可能写在那里的残留。
+sed -i '/ss_config.sh/d;/ssconfig.sh/d' /jffs/scripts/wan-start >/dev/null 2>&1
+sed -i '/ss_config.sh/d;/ssconfig.sh/d' /jffs/scripts/nat-start >/dev/null 2>&1
+sed -i '/ss_config.sh/d;/ssconfig.sh/d' /koolshare/scripts/wan-start >/dev/null 2>&1
+sed -i '/ss_config.sh/d;/ssconfig.sh/d' /koolshare/scripts/nat-start >/dev/null 2>&1
+
+# 运行时状态键（界面状态栏用）。这些键不属于用户配置，卸载后留着会让重装前的
+# 旧状态显示在新装的界面上。
+for k in ss_runtime_udp_state ss_runtime_udp_text ss_runtime_udp_probe \
+         ss_runtime_udp_probe_text ss_runtime_udp_probe_time \
+         ss_runtime_dns_state ss_runtime_dns_text ss_runtime_dns_fastlookup \
+         ss_runtime_dns_arbiter ss_runtime_dns_fallback \
+         ss_runtime_hy2_udp_unsupported; do
+	dbus remove "$k" >/dev/null 2>&1
+done
 
 dbus remove softcenter_module_shadowsocks_home_url
 dbus remove softcenter_module_shadowsocks_install

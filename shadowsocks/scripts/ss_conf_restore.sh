@@ -30,6 +30,9 @@ chmod +x /tmp/ss_conf_backup_tmp.sh
 sh /tmp/ss_conf_backup_tmp.sh
 sleep 1
 dbus set ss_basic_enable="0"
+[ -z "`dbus get ss_basic_hy2_udp`" ] && dbus set ss_basic_hy2_udp=0
+[ -z "`dbus get ss_basic_hy2_fast_open`" ] && dbus set ss_basic_hy2_fast_open=1
+[ -z "`dbus get ss_basic_hy2_lazy`" ] && dbus set ss_basic_hy2_lazy=1
 dbus set ss_basic_version_local=`cat /koolshare/ss/version` 
 echo_date 配置恢复成功！
 

@@ -30,9 +30,18 @@ chmod +x /tmp/ss_conf_backup_tmp.sh
 sh /tmp/ss_conf_backup_tmp.sh
 sleep 1
 dbus set ss_basic_enable="0"
-[ -z "`dbus get ss_basic_hy2_udp`" ] && dbus set ss_basic_hy2_udp=0
+case "`dbus get ss_basic_dns_hijack`" in
+	0|1) ;;
+	*) dbus set ss_basic_dns_hijack=1 ;;
+esac
+dbus remove ss_runtime_dns_arbiter >/dev/null 2>&1
+dbus remove ss_runtime_dns_fallback >/dev/null 2>&1
 [ -z "`dbus get ss_basic_hy2_fast_open`" ] && dbus set ss_basic_hy2_fast_open=1
 [ -z "`dbus get ss_basic_hy2_lazy`" ] && dbus set ss_basic_hy2_lazy=1
+[ -z "`dbus get ss_basic_hy2_cc_mode`" ] && [ -z "`dbus get ss_basic_hy2_global_json`" ] && dbus set ss_basic_hy2_cc_mode=brutal
+# 备份文件可能来自 5.2.x，里面还带着已下线的 hy2 UDP 开关与日志级别，恢复后一并清掉。
+dbus remove ss_basic_hy2_udp >/dev/null 2>&1
+dbus remove ss_basic_hy2_log_level >/dev/null 2>&1
 dbus set ss_basic_version_local=`cat /koolshare/ss/version` 
 echo_date 配置恢复成功！
 

@@ -4,118 +4,168 @@
 在其之上**聚焦大陆白名单场景**做链路修复与界面精简。上游本身衍生自
 [fancyss_arm380](https://github.com/hq450/fancyss_history_package/tree/master/legacy/fancyss_arm380)。
 
-当前版本：**5.2.8-beta6** · 离线包 `shadowsocks-5.2.8-beta6.tar.gz`
+当前版本：**5.3.0** · 离线包 `shadowsocks-5.3.0-beta3.tar.gz`
 
-> **5.2.8-beta6 说明**：修复梅林环境随包旧版 jq 无法执行 Hysteria2 严格校验、导致合法设定被
-> 误报为“混淆、拥塞控制或带宽参数不合法”并自动关闭插件的问题。生产启动与节点 webtest 已统一
-> 改用旧 jq 兼容校验，同时补齐官方要求的混淆密码至少 4 字节约束。主页“分流检测 / 详细状态”
-> 改为同一水平行，并对齐“国外连接 / 国内连接”两行的中线。
+> `beta3` 只标识本次修正版离线包，插件内部版本仍为 **5.3.0**。
+
+> **5.3.0 说明**：本版**下线 Hysteria2 的透明 UDP**，并把 Hysteria2 拥塞控制的默认项改为
+> **Brutal**（默认写入上行 `100 mbps`、下行 `200 mbps`）。经过三轮真机取证，确认 UDP 问题
+> 不是配置问题、
+> 不是 hysteria 构建问题、也不是服务端问题，而是**本固件内核与 hysteria `udpTProxy` 架构的
+> 结构性冲突** —— 在 Merlin AM380 的 2.6.36.4 内核上它不可能正确工作。详见
+> [Hysteria2 的透明 UDP 为什么在本固件上不可用](#hysteria2-的透明-udp-为什么在本固件上不可用)。
 >
-> **兼容性**：插件内部版本仍为 `5.2.8`，`beta6` 只用于离线包名；UDP / `fastOpen` / `lazy`
-> 的升级默认值为 `0 / 1 / 1`，延续旧版固定 `fastOpen=true`、`lazy=true` 的行为。
+> 随之移除的界面与代码：【Hysteria2设定】里的 **UDP 开关**与**日志级别**下拉框、
+> `/tmp/hysteria.log` 及其解析、`ss_runtime_hy2_server_udp` / `ss_runtime_hy2_udp_unsupported`
+> 两个运行时结论、`start_hy2` 里"剥掉 udpTProxy 重试"的自愈分支。
+> Hysteria2 节点下，全局的「同步UDP与TCP」会被**锁定为【关闭】并置灰**，旁边写明原因。
 >
-> **当前验证状态**：Hysteria2 专项审计 76/76 通过；相关 Shell 文件通过语法解析，`git diff --check`
-> 通过。最终包 95 条，已核对路径、Unix 权限、内部版本和逐文件内容与当前 `shadowsocks/` 一致。
+> **TCP 代理完全不受影响。** 要用 UDP / 游戏加速，请改用 Xray 系节点
+> （VLESS / VMess / Trojan）—— 它的 `dokodemo-door` 在用户态自己做 `(src,dst)` 分流，
+> 不依赖内核接管，在本固件上工作正常，已由本轮 A/B 实测确认（VLESS 侧 2312 包全部命中 TPROXY）。
+>
+> **兼容性**：删除 dbus 键 `ss_basic_hy2_udp`、`ss_basic_hy2_log_level`（安装/恢复/卸载三处
+> 都会清理历史值）。5.2.9-beta1 引入的探针增量判据（`ss_runtime_udp_probe_game_prev{,_t}`）
+> 与详细状态页的现场重采样**保留**，它们与节点类型无关且已实测有效。
+> DNS 劫持同时删除旧“全部”档及其 TCP/53、DoT/DoH、`strict-order` 后备实现；界面只保留
+> “默认 UDP/53”复选确认框。升级清理只拆除 `SHADOWSOCKS_DNSF`、`ss_doh` 等可证明归属
+> 插件的命名对象；旧版直写的 TCP/UDP-53 DNAT 没有所有权标记，且可与 Pi-hole 规则逐 token
+> 完全相同，新版运行期不会扫描或猜删。正常升级改用包内新版 `stop`，不再执行旧版的无界删除；
+> 检测到旧值 `2` 时，安装器会暂时锁住插件开关并调用固件标准 `restart_firewall` 重建运行时表，
+> 再由各插件的 `nat-start` 按所有权重新下发持久化规则。手工直写且未挂入 `nat-start` 的临时
+> iptables 规则本来就无法跨防火墙重启保留，需要先写入持久化钩子。
 
 离线包校验：
 
 ```text
-SHA256  e4abe53589ffb7dfa36c16522416498ce258ad18779852123b0ee2cc56c3c68b
-MD5     fdd5660187fbbace769dbe2f4b889bda
+SHA256  571f7fed722e3f3d9931767fcd71ed4688b97aa8f728f1c28a1e324e20f6e9a1
+MD5     ffccf446ebd4766e0313454ece28b62d
 ```
 
 ---
 
 ## 真机验证清单
 
-按**风险从高到低**排。每项都给了"看哪里"和"什么算过" —— 不用读日志猜，
-插件的「系统状态」页已经把实际生效值全部摊出来了（11 个 `ss_runtime_*` 键 100% 可见）。
+本版删代码多于加代码，所以**回归项排在最前**：先确认 Xray 侧一个字没坏，再看 hy2 侧该消失的
+东西是不是都消失了。
 
-> **先留退路**：升级前把当前能用的包留一份，或记下当前版本号。
-> 出问题时软件中心卸载重装旧包即可 —— 本分支没有改过 dbus 里任何**用户配置**键的语义，
-> 降级不会丢节点与设置。
+### 0　VLESS 不许被碰坏（回归项，最先测）
 
-### 0　基线：先别改任何配置
+改动只落在 hy2 分支、界面与状态输出；`apply_nat_rules` / TPROXY / 策略路由**逐字未动**。
+但 `ss/cru/udp.sh` 与 `ss_proc_status.sh` 是两个核心共用的，必须实测。
 
-装完直接点【应用】，用你日常那套（hy2 或 VLESS + 大陆白名单 + DNS劫持=全部 + fastlookup）。
+1. 切 VLESS 节点，「同步UDP与TCP」= 仅代理QUIC+Game，填好 Game 端口，应用。
+2. 界面：「同步UDP与TCP」下拉框**可选、不置灰**，旁边**没有**黄色提示。
+3. 开游戏 5 分钟，看「系统状态」：
 
-**看**：主界面状态栏五行 · 「系统状态」页
-**过**：UDP 与 DNS 两行都不是红的；正常上网、直连网页不卡顿。
-若这一步就不对，后面几项先别测，把「系统状态」页整页贴出来。
-
-### 1　ACL 主机的 UDP 档位守卫（本轮修复，风险最高）
-
-这条修的是"用户明确选了【关闭】，某些主机的 UDP 却仍被代理"。
-
-**造条件**：节点用 **SS 协议**；主模式选**大陆白名单**（不是游戏模式）；
-【同步UDP与TCP】选**关闭**；访问控制里加两台机 —— 一台设**游戏模式**，一台设**全局模式**。
-
-**看**：
+```text
+mangle PREROUTING  multiport dports <你的Game端口>   ← 包数应持续增长
+mangle SHADOWSOCKS_CHN  TPROXY                       ← 与上一行同量级
+ss_runtime_udp_probe = [flow]
 ```
-iptables -t mangle -S SHADOWSOCKS
+
+4. 游戏退出后再看一次，隔 5 分钟以上：probe 应从 `flow` 转 `ok`（增量为 0），
+   而不是一直绿着。
+
+### 1　hy2 的 UDP 界面与配置彻底消失
+
+1. 切 Hysteria2 节点，进【Hysteria2设定】：**没有 UDP 开关、没有日志级别下拉框**；
+   拥塞控制默认显示 **Brutal**，带宽默认显示上行 `100`、下行 `200` Mbps。
+2. 全局「同步UDP与TCP」下拉框**置灰锁定在【关闭】**，右侧有黄色说明写明内核原因。
+3. 应用后检查生成的配置：
+
+```bash
+jq 'del(.auth)' /koolshare/ss/hysteria.json
 ```
-**过**：全局模式那台的规则应当是 `-s <它的IP> -p udp -j RETURN`，
-**不是** `-g SHADOWSOCKS_GLO`。游戏模式那台仍应跳 `SHADOWSOCKS_GAM`（它才是 mangle 被打开的原因）。
 
-**不过的话**：说明档位守卫没生效，那台设备除 53 与白名单外的全部 UDP 会进透明代理 ——
-服务端不开 UDP relay 时是黑洞，表现为"网页能开但视频通话/联机全废"。
+`udpTProxy` 键**必须不存在**；`socks5` 与 `tcpRedirect` 照常。
 
-### 2　hy2 重启后不再下发 UDP 规则（本轮修复）
+默认配置还必须包含：
 
-**只有当你的 hysteria 构建不接受 `udpTProxy` 时才会触发**。先判断属不属于这种情况：
-把【Hysteria2设定】里的 UDP 开关设为「打开」+ 档位选「仅代理QUIC」，点应用，看日志有没有
-「确认：这份 hysteria 构建不接受 udpTProxy」。**没有这句就说明你的构建支持，本项跳过。**
-
-有这句的话，**重启一次路由器**，然后：
-
-**看**：「系统状态」页的 `-- Hysteria2 透明UDP入站(udpTProxy) 构建能力 --` 段
-**过**：显示 `ss_runtime_hy2_udp_unsupported = [1]`，且
-`iptables -t mangle -S PREROUTING` 里**没有** `-j SHADOWSOCKS` 的 UDP hook。
-
-**不过的话**（键是空的、且 hook 存在）就是 beta11 修的那个黑洞复现了：
-规则指向一个只监听 TCP/3333 的核心，Game 端口 UDP 会整段被丢。
-
-### 3　加密DNS 放行在回退时被撤销（本轮修复）
-
-**造条件**：DNS劫持选**全部**，然后故意让 dnsmasq 起不来
-（最省事的办法：在【自定义 dnsmasq 设置】里写一行明显非法的内容，点应用）。
-
-**看**：
+```json
+"bandwidth": {"up": "100 mbps", "down": "200 mbps"}
 ```
-iptables -t nat -S SHADOWSOCKS | grep -E '853|ss_doh'
+
+且不能出现 `"congestion": {"type": "brutal"}`。选择 BBR standard 时，`bandwidth` 与
+`congestion` 都应省略；BBR conservative/aggressive 与 Reno 才生成 `congestion`。
+
+4. `/tmp/hysteria.log` **不应被创建**（本版不再写日志）。
+
+### 2　hy2 的 TCP 代理完全不受影响
+
+同一 hy2 节点下正常上网 5 分钟：
+
+```text
+nat SHADOWSOCKS_CHN  REDIRECT ... redir ports 3333   ← 包数正常增长
 ```
-**过**：**一条都没有**。状态栏 DNS 行显示「已回退」。
 
-**不过的话**（853/ss_doh 的 RETURN 还在）：加密 DNS 会既不走代理也不被拦截，直接明文出境 ——
-比不开「全部」档更差。测完记得把那行非法配置删掉。
+网页、DNS（dns2socks 走 SOCKS5）均正常。这是本版最重要的"没弄坏"判据。
 
-### 4　filter 层 QUIC guard（第二轮遗留，一直没验证）
+### 3　降级文案与状态位正确
 
-主模式**大陆白名单**、档位**关闭**、访问控制**留空**：
-**过** —— `iptables -S SHADOWSOCKS_FWD` 里有 `-p udp --dport 443 -j REJECT`；境外 HTTP/3 站点仍能打开（浏览器回退 TCP 走代理）。
+hy2 节点下看「系统状态」：
 
-再把访问控制里加一台"不通过代理"的主机：
-**过** —— 该主机不受 guard 影响，能正常直连境外 UDP。
+```text
+ss_runtime_udp_state = [degraded_node]
+ss_runtime_udp_probe = [unsupported]     ← 黄灯，不是红灯 fail
+-- Hysteria2 透明UDP（已下线，非故障）--  ← 有这一段，写明内核原因
+```
 
-### 5　负载：ACL 主机的 UDP 现在会进 TPROXY（本分支唯一实质改变负载的改动）
+**不应**再出现 `ss_runtime_hy2_udp_unsupported`、`ss_runtime_hy2_server_udp`、
+以及「hysteria 运行日志」整段。
 
-档位开到**全量UDP**，让一台 ACL 主机跑 BT 或看视频。
+### 4　历史 dbus 键被清理
 
-**看**：`top` 的 CPU、`cat /proc/sys/net/netfilter/nf_conntrack_count`
-**过**：CPU 不长期贴 100%，conntrack 不逼近上限。
-顶不住就把档位降到「仅代理QUIC」—— 这是设计上的取舍，不是 bug。
+升级安装后：
+
+```bash
+dbus get ss_basic_hy2_udp          # 应为空
+dbus get ss_basic_hy2_log_level    # 应为空
+dbus get ss_runtime_hy2_server_udp # 应为空
+```
+
+从 5.2.x 的备份恢复配置后再查一次（`ss_conf_restore.sh` 也做了清理）。
+
+### 5　ACL 主机IP地址控件的外观（界面项）
+
+「访问控制」页第一行：**主机IP地址**框应与同行的**访问控制**下拉框等宽（160px）、
+等高、左边距一致；设备列表箭头**内嵌在输入框右端**，不再是外挂的方形按钮。
+点箭头仍能正常拉出设备列表，选中后 IP 正确回填。
+
+### 6　顶部页签栏（本版新修，Chrome 必测）
+
+1. **用 Chrome 打开**插件页面：顶部应能看到「Shadowsocks 设置」「Xray本地聚合」两个页签，
+   **不被下面的主面板遮住**。这是本版修复的主要症状。
+2. 页签只有这两个，没有「负载均衡设置」「Socks5设置」。
+3. 两个页签互相跳转正常，跳过去之后页签栏依然可见。
+4. 再用 iOS Safari 看一次（改动前它就是正常的）：应与 Chrome 表现一致，不能变差。
+5. 若手上有 Firefox 也看一眼：页面底部内容不应被裁掉（本版去掉了固定 975px 高度）。
+
+> 若页签栏仍被遮住，多半是浏览器缓存了旧的 `ss-menu.js`，强刷一次（Ctrl+F5）。
+> 样式表这边已经把两个变体类的负边距归零来兜这种情况。
+
+### 7　ACL 主机的 UDP 档位守卫（历史项，本版未改）
+
+ACL 里给某台主机单独选模式时，「同步UDP与TCP」的档位仍按主模式守卫处理，
+行为应与 5.2.9-beta1 一致。
+
+### 8　DNS 劫持只剩默认模式
+
+1. 【DNS劫持】应为复选确认框，不再出现“全部”选项。
+2. 勾选后只应下发经 `SHADOWSOCKS_DNS_*` 链的 UDP/53 DNAT；不应创建 TCP/53 DNAT、
+   `SHADOWSOCKS_DNSF` 或 `ss_doh`。
+3. 从旧配置升级时，值 `2` 自动迁移为 `1`；新版清理旧 DNSF、DoT/DoH 与 `ss_doh`。
+   正常升级在替换文件前运行包内新版 `stop`，并对旧值 `2` 执行一次标准防火墙重建；安装器
+   不匹配匿名 DNAT，持久化的第三方规则由各自 `nat-start` 在重建后恢复。
 
 ### 出问题时怎么收集
 
+「系统状态」整页 + 应用时的插件日志。本版已不再有 hysteria 运行日志，
+若需要协议级证据，临时前台跑一次即可（不改任何配置）：
+
 ```bash
-sh /koolshare/scripts/ss_proc_status.sh
+killall hysteria; cd /koolshare/bin && ./hysteria -c /koolshare/ss/hysteria.json -l debug --disable-update-check 2>&1 | grep -E "connected to server|UDP transparent"
 ```
-这一条就够了：规则、链、集合成员、dnsmasq 与 fastlookup 状态、
-11 个运行时状态键全在里面，且不含密码/UUID/服务器地址。
-另有 `review_archive/collect.sh`（只读 + 临时链实测，收尾自删）做更深的环境采集。
-
-
----
 
 ## 支持的协议
 
@@ -183,7 +233,7 @@ xray 已完全取代 v2ray 与 trojan-go，同时承载 VMess / VLESS / Trojan /
          │ 没被 hook 匹配的 UDP 到此为止：直连出去，不进下面任何一层
          ▼
  ┌─ 第②层  分流判决（mangle/SHADOWSOCKS + 五条模式链）—— 只看目的地，不看档位 ─────┐
- │   53 → RETURN ┊ 853/DoH → RETURN（「全部」档）┊ white_list → RETURN            │
+ │   UDP/53 → RETURN ┊ white_list → RETURN                                        │
  │   → ACL 主机走自己的模式链 → 其余走默认模式链                                     │
  │   模式链内：white → RETURN、black → 代理、chnroute/gfwlist 判决，落空即直连       │
  └────────────────────────────────────────────────────────────────────────────────┘
@@ -191,11 +241,10 @@ xray 已完全取代 v2ray 与 trojan-go，同时承载 VMess / VLESS / Trojan /
          │ （内核显示为 mark 0x7/0xffffffff：不补零，且缺省掩码是全字覆盖 ——
          │   拿 0x07 去 grep iptables/ip rule 的输出会一无所获）
          ▼
- ┌─ 第③层  数据面：三种协议完全统一 ───────────────────────────────────────────────┐
+ ┌─ 第③层  数据面 ────────────────────────────────────────────────────────────────┐
  │   ss-libev  `ss-redir -u`                                                       │
  │   Xray      dokodemo-door  network=udp  sockopt.tproxy=tproxy                   │
- │   Hysteria2 `udpTProxy.listen`                                                  │
- │   三者配置里都写 listen 0.0.0.0:3333；运行时呈现为 [::]:3333 的双栈套接字，       │
+ │   两者配置都监听 3333；运行时可能呈现为 [::]:3333 的双栈套接字，                 │
  │   同一 socket 以 v4-mapped 形式收 IPv4，故 IPv4 的 TPROXY 投递照常成立            │
  │   （真机实测：/proc/net/udp 里没有 3333，只有 /proc/net/udp6 有）                 │
  │   都做：收包 → 取原始目的地址 → 经隧道送出 → 伪装源地址回                          │
@@ -213,31 +262,11 @@ xray 已完全取代 v2ray 与 trojan-go，同时承载 VMess / VLESS / Trojan /
 * **「仅代理 QUIC+Game」可能在运行时悄悄等于「仅代理 QUIC」**：Game 端口语法没过、
   或 multiport 规则写入失败，都会让第三条规则不存在，而**界面上的档位不会变**，
   只能靠状态栏那行看出来。
-* **第③层只统一了数据面，控制面不统一**：ss-libev 与 Xray 只要 `mangle` 成立即可，
-  Hysteria2 还要额外打开它自己的 UDP 开关，且有独有的运行时降级路径。
+* **Hysteria2 不进入第③层**：本固件 2.6.36.4 内核缺少 hysteria `udpTProxy` 依赖的
+  UDP established socket 接管，5.3.0 起该节点只做 TCP 透明代理；界面会锁定 UDP 档位为关闭。
 
 完整的逐行拆解（含每条规则的行号、消毒逻辑、以及初稿被核验推翻的三处错误）见
 [`review_archive/chain-logic.md`](review_archive/chain-logic.md) §2.0。
-
-#### Hysteria2 是 QUIC 协议：会不会把 UDP 代理搞坏
-
-**不会回环**，两道独立保障：隧道流量是路由器**本机发起**的，走 OUTPUT 不经 PREROUTING，
-而第①层四条 hook 全部带 `-i br+`（只接管从 LAN 网桥**进来**的包）；此外节点服务器 IP
-本身就在 `white_list` 里。
-
-**但 QUIC-in-QUIC 的代价是真的**：客户端的 QUIC 被封进 hy2 自己的 QUIC 隧道，
-双层拥塞控制互相误判、双层加密 CPU 翻倍、内层已接近 MTU 再套外层还会触发分片
-（QUIC 带 DF、不允许 IP 分片，只能由外层自己切，任一片丢失整个包作废）。
-
-> **所以上面档位表里的「推荐」要按协议区分**：「仅代理 QUIC」是针对 SS / VLESS 这类
-> **TCP 承载**的协议推荐的，此时不存在 QUIC 套 QUIC。**换成 hy2 时结论反过来** ——
-> 「仅代理 QUIC」专挑 QUIC 往 QUIC 隧道里塞，三项成本全中，反倒是 Game 端口那档
-> （小包、远小于 MTU）代价小得多。
->
-> 真要在 hy2 上开 UDP，建议同时填【Hysteria2设定】里的**带宽** —— 按官方文档，
-> 填了带宽该方向就走 Brutal（定速发送、不做拥塞自适应），能减少与内层 QUIC 拥塞控制的干扰。
-> 反过来说这两项是耦合的：**填了带宽，该方向的「拥塞控制」设置就不生效**。
-
 
 * Game Port 支持单端口与端口段，逗号隔开，如 `27015,7777-7778`。前后端双重语法检查
   （端口 1-65535、multiport 槽位 ≤15、**不允许前导零**），非法则不下发规则；留空时与「仅代理 QUIC」一致。
@@ -255,14 +284,8 @@ xray 已完全取代 v2ray 与 trojan-go，同时承载 VMess / VLESS / Trojan /
   * **ss-libev + SIP003 simple-obfs —— 不行**：simple-obfs 是纯 TCP 插件，
     而 `ss-redir -u` 会把 UDP 绕过插件直发 `server:port`、服务端不接受。
     插件会识别这一组合并降级纯 TCP，状态栏显示「插件阻断」；
-  * **Hysteria2 —— 由【Hysteria2设定】里的 UDP 开关显式启用**。
-    设为「打开」后按官方 [Full Client Config](https://v2.hysteria.network/zh/docs/advanced/Full-Client-Config/)
-    写入 `udpTProxy`（`listen` / `timeout`），TCP 侧沿用 `tcpRedirect`，两者共用 3333 端口。
-    **默认关闭的理由是性能而非能力**：hy2 是 QUIC 协议、加解密开销远大于 TCP 类协议，
-    开启后 UDP 也压在同一条隧道上，弱路由器会更早撞 CPU 上限
-    （具体代价与"该选哪一档"见下文「Hysteria2 是 QUIC 协议」一节，结论与其它协议相反）。
-    若该构建未编入 TPROXY 支持，插件会剥掉该键重启一次并回退纯 TCP ——
-    打开这个开关不会把整个插件搞停；
+  * **Hysteria2 —— 当前固件只支持 TCP 透明代理**。生成器拒绝 `udpTProxy`，全局 UDP 档位
+    在该节点下锁定为关闭；根因与实机证据见下文专节；
   * **naive / anytls —— 本插件未为其配置透明 UDP 入站**，会降级纯 TCP。
     注意这是"缺配置"而不是"核心无能力"。
 
@@ -271,9 +294,7 @@ filter 层拦截，强制浏览器回退 TCP 走代理。**仅在【大陆白名
 该防护只在主模式 2 建链，gfwlist / 全局 / 回国模式没有这道兜底，此时境外 UDP（含 QUIC）为明文直连；
 要在这些模式下覆盖 QUIC，请选「仅代理 QUIC」。
 
-> **两条链路的 fallback 并不对称，这点要清楚**：DNS 链路现在是两层兜底
-> （dnsmasq 默认上游的 `strict-order` 后备 + 7913 解析器自身的国内仲裁）；
-> 而 UDP 链路的兜底**只有主模式 2/3 那一道 filter guard**。
+> UDP 链路的兜底只有主模式 2/3 的 filter guard。
 > gfwlist / 全局 / 回国模式下 UDP 降级后境外 QUIC 是明文直连，没有任何兜底。
 > 补齐它需要让 guard 的内容随模式改形（chnroute 形状照搬到 gfwlist 会 reset 所有
 > 非 gfwlist 境外 TCP），属重构；且现有那道 guard 本身尚未上真机验证，
@@ -284,84 +305,21 @@ filter 层拦截，强制浏览器回退 TCP 走代理。**仅在【大陆白名
 
 ### 二、DNS 劫持（原 chromecast）
 
-为什么这条链路重要：黑白名单里的**域名**条目，是靠"客户端经路由器 dnsmasq 解析 → 把解析出的 IP
-写进 ipset"才生效的。客户端一旦用 DoH/DoT 或直连公共 DNS 绕过 dnsmasq，
-白名单域名的真实 IP 就永远进不了白名单，于是仍被当作境外流量代理掉 ——
-这正是"加了白名单域名却仍走代理 / CF 盾显示代理出口 IP"的根因，CDN、anycast 站点尤其明显。
+界面只保留一个复选确认框：
 
-| 档位 | 行为 |
-|---|---|
-| **默认** | 只把明文 UDP/53 劫持到路由器 dnsmasq。对付手动设 8.8.8.8 够用，挡不住 DoH/DoT |
-| **全部**（推荐用于大陆白名单） | 加劫持 TCP/53，并拦截 DoT(853) 与常见 DoH 解析器 IP 的 443，逼客户端回退明文 DNS 被路由器接管 |
+* 勾选（默认）：把 LAN 客户端发往任意地址的明文 **UDP/53** 请求 DNAT 到路由器 dnsmasq；
+* 取消勾选：不下发 DNS 劫持规则。
 
-> 原「关闭」档已移除：不劫持会让黑白名单里的**域名**条目直接失效
-> （域名条目靠客户端经本机 dnsmasq 解析时写入 ipset 才生效）。历史存量若存的是「关闭」，
-> 启动时会自动迁移为「默认」并打日志。
+旧“全部”档已经删除，不再劫持 TCP/53，不再创建 `SHADOWSOCKS_DNSF` 或 `ss_doh`，也不再
+拦截 DoT/DoH/DoQ；`dnsmasq.postconf` 不再插入 `strict-order` 与国内后备上游。原因是代理
+QUIC 后，这套静态加密 DNS 拦截不能提供完整覆盖，却增加了规则、状态与故障面。
 
-「全部」档的两条回退路径，都会在主界面状态栏显示「已回退」及原因：
+配置兼容：旧值 `2`、空值和损坏值在安装、恢复及启动时归一为 `1`；用户明确取消勾选产生的
+`0` 会保留。新版清理函数只拆除 5.2.x 中具备插件所有权标记的 DoT/DoH bypass、DNSF 与
+`ss_doh`；不扫描无法区分来源的 PREROUTING DNAT。当前版本不会重新创建这些旧对象。
 
-1. 53 改道规则未能完整写入（判据是 UDP+TCP 的 AND，任一条失败即整体回退）；
-2. 本机 dnsmasq 未就绪 —— 见下。
-
-**「全部」档为什么需要 dnsmasq 就绪校验**：「默认」档只劫持 UDP/53，dnsmasq 挂了客户端还能用
-TCP DNS 逃生；「全部」档把 UDP/53 与 TCP/53 都改道到本机，一挂就是**全网 DNS 全断**。
-因此该档在下发改道规则前先做校验。**校验只看"dnsmasq 进程在不在"，不看"53 端口绑没绑"** ——
-dnsmasq 是先解析完配置才绑端口的，而本插件要喂给它约 12.3 万行规则配置
-（`cdn.txt` + `gfwlist.conf`），在这类老机器上解析窗口可以很长；
-拿端口做判据会在**完全健康**的启动过程中误判，把「全部」错误回退成「默认」
-（开着 dnsmasq-fastlookup 时更容易触发，因为替换必然伴随一次完整重启+重新解析）。
-真的等不到进程时才回退「默认」档，并且**不会替你卸掉 fastlookup** —— 那是你明确开启的设置，
-只提示优先怀疑它与当前 dnsmasq 配置不兼容。
-
-#### 「直连的网页偶尔卡住、等一会儿才刷出来」
-
-这个现象卡的是 **DNS 解析**、不是数据传输，所以流量本身直连的网页也会卡。
-成因是**两层都没有退路**：
-
-**第一层 —— dnsmasq 的默认上游。**
-大陆白名单模式下（`dnsmasq.postconf` 的国外优先方案）默认上游只有 `127.0.0.1#7913`，
-那是经代理隧道出国的解析器；国内域名靠 `cdn.txt` 的 11.3 万行显式指回国内 DNS 来"抢救"。
-于是**既不在 gfwlist、也不在 cdn 列表**里的域名 —— 国内小站、CDN 子域、新域名、
-网页里嵌的第三方域名 —— 解析都要经隧道出国一趟；而 `no-resolv` 掉了所有本地后备。
-
-**第二层 —— 7913 上跑的那个解析器本身。**
-它是否自带"国内上游 + 隧道"的仲裁，完全取决于【国外DNS方案】选了哪个：
-
-| 国外DNS方案 | 7913 上的实际形态 | 自带国内仲裁 |
-|---|---|---|
-| **ChinaDNS-NG** | `-c <国内DNS>#53 -t 127.0.0.1#1055` | **有** |
-| **chinadns1** | `-s <国内DNS>,127.0.0.1:1055 -c chnroute.txt` | **有** |
-| chinadns2 / SmartDNS | 取决于你填的服务器列表 / 配置 | 视配置而定 |
-| cdns | `cdns.json` 里 4 个上游**全是境外**，timeout 2s | 无 |
-| dns2socks（出厂默认）/ ss-tunnel / https_dns_proxy / v2ray_dns | 纯隧道 | 无 |
-
-两层都没退路时，隧道一抖动这些域名就彻底解析不出来，只能等客户端 DNS 超时（约 5 秒）后重试 ——
-就是那个卡顿。「全部」档把原本自带公共 DNS/DoH、**绕开**这条链路的设备也强行拉了进来，
-所以开了该档之后现象才明显。
-
-**两处对策，从根上的那个更有效：**
-
-1. **把【国外DNS方案】改为 ChinaDNS-NG（或 chinadns1）** —— 让第二层自带仲裁，
-   隧道抖动时它用国内上游应答。这是根治，且与 dnsmasq 的任何选项无关。
-   当前选的是纯隧道型方案时，主界面 DNS 那行会显示 **`7913无国内仲裁`** 提醒，
-   「系统状态」页也有对应分类输出。
-2. **第一层兜底（「全部」档自动启用）**：给 dnsmasq 默认上游追加一条国内 DNS，
-   并用 `strict-order` 保证它只是**后备**而不是竞速对手。
-
-`strict-order` 的语义已在 fastlookup 的上游源码（[infinet/dnsmasq](https://github.com/infinet/dnsmasq)）
-层面查证过：选项被接受（`option.c` 的 `{ "strict-order", 0, 0, 'o' }` → `OPT_ORDER`）、
-严格按配置顺序（`forward.c`：`if (option_bool(OPT_ORDER)) start = daemon->servers;`）、
-**且不并发扇出**（`forwardall = 1` 只出现在 `!OPT_ORDER` 分支）、失败才前进到下一条
-（`reply_query()` 里 `for (server = forward->sentto->next; ...)`）—— 正是 fallback。
-该 fork 只把"域名 → 规则"的匹配存储换成分层哈希，server 遍历与 `OPT_ORDER` 分支是原版未动。
-
-**反过来说，不加 `strict-order` 的后果比"择快"严重得多**：`forwardall = 1` 是真的
-**并发发给所有上游、谁先回用谁**。对被墙域名，国内 DNS 的污染应答延迟低得多、几乎必然胜出
-并被缓存，gfwlist 分流会被彻底毁掉。所以这一行是**必要条件**，不是保险。
-
-运行时仍会探测一次该选项是否被接受（koolshare 的编译快照未必与上游一致，而该二进制是
-UPX 压缩的、无法离线核对）。**探测失败也不影响卡顿的根治路径** —— 那条走的是第 1 点，
-与 dnsmasq 选项无关；此时会写 `ss_runtime_dns_fallback=unsupported` 并在日志里建议换方案。
+默认模式只能接管明文 UDP DNS。客户端自己的 TCP DNS、DoH、DoT 或 DoQ 仍可绕过路由器；
+这是删除“全部”后的明确边界，不再以“全部强制”文案承诺无法完整实现的覆盖。
 
 ### dnsmasq-fastlookup 兼容性
 
@@ -377,26 +335,193 @@ UPX 压缩的、无法离线核对）。**探测失败也不影响卡顿的根�
 
 ## 运行时状态显示
 
-下拉框里选的是**请求值**，实际生效的可能被就地降级（节点核心能力、内核 TPROXY 可用性、
-fwmark/table310 冲突、DNS 规则写入失败、dnsmasq 未就绪）。
-这些降级只改运行时变量、不写回配置，所以只回显下拉框等于把偏差原样搬上界面。
-主界面状态栏因此新增两行，显示**实际生效值**：
+UDP 下拉框里选的是请求值，实际生效值还取决于节点核心能力、内核 TPROXY、fwmark 与
+table 310。DNS 复选框只有默认/关闭两种状态。主界面状态栏分别显示两条链路的运行结果：
 
 * **UDP 代理** —— 两枚芯片。档位段来自配置层；实测段来自运行层探测
   （校验 UDP/3333 透明入站监听、fwmark→table310 策略路由、table310 本机路由、
   mangle PREROUTING 钩子、模式链内 TPROXY 规则）。
   **QUIC/443 按设计排除在实测之外**：「仅代理 QUIC」档代理的就只有 UDP/443，
   没有非 443 UDP 可查，显示为「不适用」（空心点）而非失败 —— 否则选了推荐档反而看到红灯。
-* **DNS 劫持** —— 显示实际走到的档位；「已回退」时把原因摊在行内。同行还显示
-  **dnsmasq-fastlookup 的实际状态**（已挂载 / 「选了替换但实际没挂上」标红，后者多为
-  `--test` 未通过、与当前 dnsmasq 配置不兼容 —— 此前这个差异只在日志里一行、界面无处可看），
-  以及**7913 解析器有无国内仲裁**的提醒。
-  同行还显示 **dnsmasq-fastlookup 的实际状态**：已挂载则一枚 `fastlookup` 芯片，
+* **DNS 劫持** —— 只显示关闭或默认 UDP/53；同行显示 **dnsmasq-fastlookup 的实际状态**：
+  已挂载则一枚 `fastlookup` 芯片，
   「选了替换但实际没挂上」（`--test` 未通过，多为与当前 dnsmasq 配置不兼容）则标红说明 ——
   此前这个差异在界面上无处可看，只在日志里一行。
 
 两行都在提交完成后立即重取刷新，并随状态栏轮询保持更新。
-「系统状态」页有对应的完整诊断输出（规则、链、集合成员、dnsmasq 存活与 fastlookup 挂载情况）。
+「系统状态」页有对应诊断输出（UDP/53 规则、dnsmasq 存活与 fastlookup 挂载情况）。
+
+### 探针语义：累计值 vs 增量（5.2.9-beta1 起）
+
+主界面那枚「实测」芯片由 `ss/cru/udp.sh` 每 5 分钟回写一次（apply 收尾与打开「系统状态」页
+时也会各跑一次）。它判断"有没有流量"用的是**两次采样之间的增量**，不是累计值。
+
+这个区分是必要的：`iptables` 的规则计数是**自建链以来的累计值**，只有重新 apply
+（删链重建）才归零。旧版据此判 `>0` 就报"已有流量经代理"，于是游戏关了、隧道断了、
+UDP 全程被服务端拒掉，芯片照样是绿的 —— 一个永远不会熄的灯。
+
+真机上这正好掩盖过一次真故障：HY2 四分钟 114 包（0.42 包/秒）与 VLESS 3281 包
+（12 包/秒）相差 29 倍，形态是"发出去没人回、游戏在退避重试"，但两者在旧判据下都只是 `>0`。
+
+现在的取值：
+
+| probe | 含义 |
+|---|---|
+| `flow` | 上个采样周期内**有新增**包经 TPROXY |
+| `ok` | 累计 >0 但一个周期内**零新增** —— 游戏已退出则正常；游戏还在跑就是"UDP 只出不回" |
+| `warn` | Game 端口命中了，但 TPROXY 计数为 0 —— 包按分流规则走了直连（白名单 / chnroute 国内段） |
+| `unsupported` | 该节点/协议提供不了 UDP 加速（黄灯，**不是故障**）。含新增的"服务端未开 UDP" |
+| `fail` | 该生效却没立起来，或内核/环境故障 —— 只有这个是真红灯 |
+
+已处理两个边界：apply 后计数器归零（基线还停在重建前的高值，不会误报"零新增"）、
+以及连点两次「系统状态」（间隔太短时不下"流量停了"的结论，也不破坏基线）。
+
+### Hysteria2：不再有 UDP 相关的运行时状态（5.3.0 起）
+
+5.2.9-beta1 曾在这里显示两层 hy2 UDP 前提（构建是否认 `udpTProxy`、服务端是否声明
+`UDPEnabled`）。5.3.0 起这两个键连同 `/tmp/hysteria.log` 一并移除 —— 因为真正的阻断在
+**第三层**，而它是无条件成立的：本固件内核根本不做 UDP 的 TPROXY established 接管，
+所以前两层判成什么都没有意义。原委见下一节。
+
+Hysteria2 节点下，「同步UDP与TCP」在界面上被锁定为【关闭】并置灰，
+`ss_runtime_udp_state` 回写 `degraded_node`，探针给 `unsupported`（黄灯，不是红灯）。
+
+---
+
+## Hysteria2 的透明 UDP 为什么在本固件上不可用
+
+这一节记录一次完整的误诊与最终定位，因为中间三个"看起来很像"的结论**全都是错的**，
+而且每一个都能自圆其说。
+
+### 结论
+
+hysteria 的 `udpTProxy` 依赖一个内核特性：**TPROXY 对 UDP 的 established socket 接管**。
+Merlin AM380 的 2.6.36.4 内核没有这个特性（它在 2.6.37 才进主线）。
+两者叠加的结果是 hysteria 退化成**一个包一条会话**，游戏永远建立不了连接。
+
+这不是配置错误、不是 hysteria 构建缺特性、也不是服务端没开 UDP —— 这三条都被实测逐一排除。
+
+### 机制
+
+hysteria 的透明 UDP 入站是这样设计的（[`app/internal/tproxy/udp_linux.go`][hy2-udp]）：
+
+```go
+for {
+    // We will only get the first packet of each src/dst pair here,
+    // because newPair will create a TProxy connection and take over
+    // the src/dst pair. Later packets will be sent there instead of here.
+    n, srcAddr, dstAddr, err := tproxy.ReadFromUDP(conn, buf)
+    r.newPair(srcAddr, dstAddr, buf[:n])
+}
+```
+
+`newPair()` 会 `tproxy.DialUDP(dst, src)` 建一个 **connected 的 `IP_TRANSPARENT` socket**
+（绑在游戏服务器地址上、连到 LAN 客户端），然后指望内核把该四元组的**后续包**直接投递给它，
+通配监听器只负责首包。
+
+这个"接管"靠的是 `xt_TPROXY` 的**两段查找**：
+
+```c
+/* 先按原始四元组查 established socket */
+sk = nf_tproxy_get_sock_v4(..., NF_TPROXY_LOOKUP_ESTABLISHED);
+if (!sk)
+    /* 查不到才回落到 --on-port 指定的 listener */
+    sk = nf_tproxy_get_sock_v4(..., lport, ..., NF_TPROXY_LOOKUP_LISTENER);
+```
+
+**UDP 的 established 那一段是 2.6.37 才加进主线的**，而本插件只支持的 AM380 内核是
+2.6.36.4 —— 它只有 listener 查找。于是每一个包都落回通配监听器，`newPair()` 对**每个包**
+各跑一次。
+
+后果是**会话身份被打碎**，不是效率损失：
+
+| 环节 | 正常内核 | 本固件内核 |
+|---|---|---|
+| 一次游戏会话的 `newPair` 次数 | 1 | 每包 1 次 |
+| HY2 UDP SessionID | 1 个 | 每包一个新的 |
+| 服务端出站 socket | 1 个，源端口固定 | 每包一个新的，**源端口每包都在变** |
+| 游戏服务器看到的 | 一个稳定的客户端 | 每包来自一个"新客户端" |
+| 孤儿会话 | 无 | 每个都空转到 20s 超时才关 |
+
+### 实机证据
+
+把日志级别开到 `debug`、玩 5 分钟游戏，`/tmp/hysteria.log` 里是这样的：
+
+```text
+14:09:30Z DEBUG UDP transparent proxy connect {"addr":"192.168.50.167:57411","reqAddr":"94.242.209.76:7777"}
+14:09:30Z DEBUG UDP transparent proxy connect {"addr":"192.168.50.167:57411","reqAddr":"94.242.209.76:7777"}
+14:09:31Z DEBUG UDP transparent proxy connect {"addr":"192.168.50.167:57411","reqAddr":"94.242.209.76:7777"}
+...                                            ← 11 秒内 22 次，源端口与目的地全程不变
+14:09:50Z DEBUG UDP transparent proxy closed  {"addr":"192.168.50.167:57411","reqAddr":"94.242.209.76:7777"}
+                                               ← 恰好比对应的 connect 晚 20 秒（配置的 timeout）
+```
+
+**同一个 `(src,dst)` 对反复 `newPair`**，这在正确的内核上整场游戏只该出现一行。
+每条会话都从没收到任何回包，20 秒读超时才关闭。
+
+三次 HY2 测试的 Game 端口计数：
+
+| 样本 | 包数 | 字节 | 平均包长 | 速率 |
+|---|---:|---:|---:|---:|
+| HY2 #1 | 114 | 10137 | 88.9 B | 0.42 包/秒 |
+| HY2 #2 | 114 | 10134 | 88.9 B | 0.16 包/秒 |
+| HY2 #3（debug） | 76 | 6753 | 88.9 B | 0.26 包/秒 |
+| **VLESS 对照** | **2312** | **398K** | **176 B** | **7.7 包/秒** |
+
+平均包长三次都是 88.9 B 且高度一致 —— 全是同一种连接尝试包，**从来没有进入过真正的游戏数据**；
+VLESS 的 176 B 才是在跑的状态同步。速率相差约 30–48 倍。
+
+### 被排除的三个错误结论
+
+| 猜测 | 为什么看起来对 | 怎么被推翻 |
+|---|---|---|
+| 插件没给 hy2 配 UDP 入站 | 上游确实只写了 `tcpRedirect` | 补上 `udpTProxy` 后监听器确实起来了（`UDP transparent proxy listening {"addr":"0.0.0.0:3333"}`），问题照旧 |
+| 这份 hysteria 构建不认 `udpTProxy` | 启动失败会是同样现象 | 进程正常启动、PID 全程不变、日志明确打印监听成功 |
+| 服务端没开 UDP | 现象完全吻合：计数正常、界面全绿、游戏不通 | 日志直接给出 `connected to server {"udpEnabled": true, ...}`，并且**零条** `UDP transparent proxy error`（Warn 级，与日志里几十条 `TCP redirect error` 同级、确认可见） |
+
+第三条尤其有迷惑性：它在 `xt_TPROXY` **之后**失败，而 iptables 计数是在 target 做 socket
+lookup **之前**就加过的，所以"Game 计数正常、TPROXY 计数正常、游戏不通"这组现象，
+`udpEnabled=false` 和本次的内核问题**完全一致**。区分它们只能靠 hysteria 自己的日志。
+
+### Xray 为什么不受影响
+
+Xray 的 `dokodemo-door` TPROXY 入站**根本不依赖内核接管**：所有包都留在那一个通配监听器上，
+逐包读 `IP_ORIGDSTADDR` 拿原始目的地，`(src,dst) → session` 的 demux **在用户态自己做**。
+与内核版本无关。
+
+这就是为什么同一台路由器、同一套 iptables/TPROXY/策略路由规则下，
+VLESS 的 2312 个游戏包全部正常经代理，而 HY2 一个都建立不起来。
+
+### 未来怎么修
+
+按代价从低到高：
+
+**1. 换 Xray 系节点（当前推荐，零成本）**
+
+VLESS / VMess / Trojan 走 Xray，UDP 与游戏加速在本固件上工作正常，已实测。
+Hysteria2 继续用作 TCP 代理，不受任何影响。
+
+**2. 给 hysteria 打用户态 demux 补丁并重新编译（正确的修法）**
+
+把 `ListenAndServe` 改成自己维护 `map[src+dst]*pair`：命中就复用已有 `hyConn.Send()`，
+没命中才 `newPair`；per-pair 那个 `conn.Read` goroutine 直接去掉（它在本内核上永远收不到
+东西），只保留回程的 `Local <- Remote`。约 30 行，改完 hysteria 就和 Xray 一样不挑内核。
+
+仓库里已有 `hysteria-master/` 源码与 `hyperbole.py` 构建脚本；目标架构 `GOARCH=arm GOARM=7`。
+这属于换二进制，不是插件配置层能解决的，所以没有并入本版。
+
+**3. 用 Xray 前置 + hysteria 的 SOCKS5 出站（不重编，但代价大）**
+
+hysteria 的 SOCKS5 服务端支持 UDP ASSOCIATE（[`app/internal/socks5/server.go`][hy2-socks5]）。
+于是可以：UDP 走 Xray `dokodemo-door` tproxy 入站（占 **UDP** 3333）→ `socks` 出站到
+`127.0.0.1:23456` 且 `"udp": true`；TCP 仍走 hysteria 的 `tcpRedirect`（占 **TCP** 3333，
+同号不同协议不冲突）。
+
+代价是两个核心常驻、多一跳本地 SOCKS5，CPU 明显上升；且现有启动流程是"先杀 xray 再起
+hysteria"，要改的地方不少。除非有强需求，方案 1 或 2 都更划算。
+
+[hy2-udp]: https://github.com/apernet/hysteria/blob/master/app/internal/tproxy/udp_linux.go
+[hy2-socks5]: https://github.com/apernet/hysteria/blob/master/app/internal/socks5/server.go
 
 ---
 
@@ -409,6 +534,9 @@ fwmark/table310 冲突、DNS 规则写入失败、dnsmasq 未就绪）。
 * 「更新管理」移除「节点订阅设置」「通过链接添加服务器」；
 * 「添加节点」移除「SSR」「koolgame」「Naive」（存量节点仍可正常编辑）；
 * 移除主界面「检查并更新」按钮 —— 有新版本时仍会在版本号旁提示，升级请走软件中心；
+* **顶部页签只保留「Shadowsocks 设置」与「Xray本地聚合」**（5.3.0）：「负载均衡设置」
+  与「Socks5设置」功能已过时，从导航里摘掉。两个 `.asp` 与其后端代码仍在包内，
+  直接输入地址可访问，只是不再从页签暴露；
 * **游戏模式仅限 SS 协议节点**：其它协议跑全量 UDP 透明代理对路由器负载过重。
   非 SS 节点选择游戏模式时自动回退大陆白名单模式，其 UDP 需求由「同步 UDP 与 TCP」覆盖
   （界面与后端双重拦截，均有日志提示）。
@@ -479,7 +607,9 @@ Windows 自带 bsdtar 可能把文件/目录写成 `0666/0777`；发布包还必
 | `pipeline.py` | 对比 `apply_ss` / `load_nat` / `flush_nat` / `disable_ss` 的调用顺序与关键链内规则次序 |
 | `lifecycle.py` | 把"创建的东西"与"清理的东西"配对，找只创建不清理的残留 |
 | `jscheck.py` | JS 词法扫描（正确跳过字符串/模板串/正则/注释后检查括号配平），用于 262KB 的 ASP。会先剥掉 `<% %>` 模板标记 |
-| `test_udp_probe.sh` | `cru/udp.sh` 判定矩阵的桩测试，17 种组合 |
+| `test_udp_probe.sh` | `cru/udp.sh` 判定矩阵的桩测试，22 种组合 |
+| `test_dns_legacy_cleanup.sh` | DNS“全部”档下线契约：只清插件命名对象，不扫描或删除用户/第三方 PREROUTING DNAT |
+| `hy2_audit.py` | 真实提取生产与测速生成函数，核对 Brutal/BBR/Reno、旧配置迁移、冲突归一及非法 JSON 拒绝 |
 | `collect.sh` | 路由器环境信息收集（只读 + 临时链实测，收尾自删，敏感值不落盘） |
 | `build_preview.py` | 把真实的 `shadowsocks.css` 内联进预览页，保证界面预览与上机效果不漂移 |
 | `rhythm_audit.py` | 节奏审计：摊开每个控件的尺寸来源（种类、行内写死的宽高、宽度离散度、空格/`<br>` 撑排版的残留），改样式前先量化 |
@@ -493,6 +623,149 @@ Windows 自带 bsdtar 可能把文件/目录写成 `0666/0777`；发布包还必
 ---
 
 ## 变更记录
+
+### 5.3.0
+
+**Hysteria2 默认改为 Brutal。** 页面新增明确的 `Brutal / BBR / Reno` 模式键，默认 Brutal
+并写入官方示例值上行 `100 mbps`、下行 `200 mbps`。Brutal 通过 `bandwidth` 启用，绝不生成
+无效的 `congestion.type=brutal`；BBR standard 省略 `bandwidth` 与 `congestion`，避免与核心
+默认的 BBR standard 重复。旧的单向带宽及 `bandwidth + congestion` 混合配置仍可加载和保存。
+显式模式键是最终意图来源：恢复或部分写入造成 `BBR/Reno + bandwidth` 冲突时，生产启动与
+节点测速都会移除冲突字段并按所选模式生成；Brutal 下合法的 `congestion` 仍作为服务端忽略
+客户端带宽时的回退。旧 JSON 若只有混淆等非拥塞设置、且还没有独立模式键，会保留历史默认
+BBR standard，不会因新版界面默认 Brutal 而改变行为。页面加载对空对象、数组、未知字段、非法 profile 与非法带宽执行完整
+schema 校验，损坏配置会锁住保存，避免静默覆盖。生产启动与节点测速共用同一套枚举、带宽
+格式、最终 schema 和动态核心版本校验。
+
+**DNS 劫持删除“全部”档。** 页面改为默认 UDP/53 的复选确认框；删除 TCP/53 直 DNAT、
+DoT/DoH 拦截链、`ss_doh` 集合、仲裁/fallback 状态及 `strict-order` 国内后备。旧值 `2` 自动迁移
+到 `1`；当前版本只清理具备插件命名所有权的旧链/集合，不创建这些对象，也不扫描或猜删
+无法区分来源的 PREROUTING DNAT。
+
+**下线 Hysteria2 的透明 UDP。** 经三轮真机取证定位为**内核与 hysteria `udpTProxy` 架构的
+结构性冲突**，非配置/构建/服务端问题，在 Merlin AM380 的 2.6.36.4 内核上不可能正确工作。
+完整病因、实机证据与三条未来修法见
+[Hysteria2 的透明 UDP 为什么在本固件上不可用](#hysteria2-的透明-udp-为什么在本固件上不可用)。
+
+一句话机制：hysteria 只把每个 `(src,dst)` 的首包交给通配监听器，随后建 connected
+`IP_TRANSPARENT` socket 并**指望内核接管**后续包；该接管靠 `xt_TPROXY` 的 established 查找，
+而 UDP 的那一段 2.6.37 才进主线。于是每包新建一次会话，服务端每包换一个出站源端口，
+游戏服务器看到的源端口不停变化，会话永远建不起来。
+实测：同一 `(src,dst)` 对 11 秒内 22 次 `newPair`，各自 20 秒后超时关闭；
+三次采样平均包长恒为 88.9 B（纯连接尝试），VLESS 对照为 176 B / 7.7 包每秒。
+
+**移除**
+
+* 【Hysteria2设定】里的 **UDP 开关**（`ss_basic_hy2_udp`）与**日志级别**（`ss_basic_hy2_log_level`）
+* `/tmp/hysteria.log` 及其全部解析（`hy2_log_level` / `hy2_log_strip` / 服务端 `udpEnabled` 判定）
+* 运行时结论 `ss_runtime_hy2_server_udp`、`ss_runtime_hy2_udp_unsupported`
+* `start_hy2` 里"启动失败 → 剥掉 `udpTProxy` 重试 → 落库不支持"的整条自愈分支
+* 「系统状态」里的【hysteria 运行日志】与两段 hy2 UDP 能力输出
+
+**行为变化**
+
+* `udp_tproxy_supported` 不再把 Hysteria2 算作支持，新降级原因 `hy2_udp_kernel`
+  → `degraded_node`，探针给 `unsupported`（黄灯，不是红灯）
+* `create_hy2_json` 不再生成 `udpTProxy`；`hy2_validate_final_json` **主动拒绝**该键，
+  防止用户从【Hysteria2设定】的自定义 JSON 把它塞回来
+* 界面：hy2 节点下「同步UDP与TCP」锁定【关闭】并置灰，旁注写明内核原因
+* 安装 / 配置恢复 / 卸载三处都会清理两个历史 dbus 键
+
+**界面**
+
+* **节点添加/编辑浮层适配可视区**：浮层限制在浏览器可视区内并由自身纵向滚动，
+  不再被主面板裁切；小屏下滚动到底即可操作「返回」与「添加」。
+* **收紧 V2Ray JSON 编辑器高度**：节点浮层与主界面的「使用JSON配置」编辑器均缩为
+  12 行（约 210px），长配置在文本框内滚动且仍可纵向调整，保存/应用按钮保持可达。
+* **修复 Chrome 下顶部页签栏被主面板遮死**（iOS Safari 一直正常）。成因在
+  `ss-menu.js` 的 `browser_compatibility1()`：它按 UA 给 `#FormTitle` 挂
+  `.FormTitle_chrome56` / `.FormTitle_firefox`，而这两个类带 `margin-top:-100px`
+  —— 主面板被上提 100px，正好压在紧邻其上的 `#tabMenu` 上。上游那套半透明配色下
+  页签还能透出来，本主题给 `#FormTitle` 上了不透明底色与阴影之后就彻底看不见了。
+  iOS Safari 的 UA 里没有 `Chrome`（Chrome for iOS 是 `CriOS`），三条分支一条都不命中，
+  保持 HTML 写死的 `class="FormTitle"` —— 也就是说 **Safari 那份才是正确布局**。
+  现在让所有浏览器都走这条路：`browser_compatibility1()` 只把 `#FormTitle` 归一到
+  `.FormTitle` 并清掉行内偏移；两个变体类保留但负边距归零（兜住浏览器缓存里的旧 JS）；
+  `#tabMenu` 另给 `position:relative; z-index:2` 作为最后一道保险。
+  顺带去掉 Firefox 分支那句 `height="975px"` —— 当时 `#FormTitle` 还有 `overflow:hidden`
+  用于圆角裁切，固定高度会直接裁掉超出内容，而这几页高度随标签页变化很大。
+* 「访问控制」页的**主机IP地址**控件改为与同行「访问控制」下拉框一致的单控件外观：
+  等宽 160px、等高、左边距一致，设备列表箭头内嵌到输入框右端，
+  不再是「输入框 + 5px 间隙 + 独立方钮」的两件套（原总宽 174px，与邻居对不齐）
+
+**导航**
+
+* 顶部页签由四个收敛为两个：**Shadowsocks 设置**、**Xray本地聚合**。
+  移除「负载均衡设置」与「Socks5设置」两个过时入口（`menu_hook()` 的
+  `tabtitle`/`tablink`）。底层 `.asp` 与后端代码原样保留在包内，未做任何删除。
+
+**保留**（5.2.9-beta1 引入，与节点类型无关且已实测有效）
+
+* 探针的**增量判据**（`ss_runtime_udp_probe_game_prev{,_t}`）：累计值一旦 >0 就永久粘住，
+  停滞流会被误报成"有流量"
+* 「系统状态」页打开时**现场重新采样**探针，不再并排展示"实时计数"与"5 分钟前的结论"
+
+**未改动**：UDP TPROXY / 策略路由及 Xray 数据面；iptables 的变化仅限删除 DNS“全部”档并
+保留一次性升级清理。
+
+### 5.2.9-beta1
+
+专修 Hysteria2 UDP 链路的可观测性。**未改动任何 iptables / TPROXY / 策略路由代码**，
+Xray（VLESS）路径逐字未动 —— 所有 hy2 相关改动都在
+`ss_basic_type==4 && ss_basic_trojan_binary==Hysteria2` 的门控之内。
+
+* **hysteria 运行日志**（`ssconfig.sh` `hy2_spawn`）：由 `-l error >/dev/null 2>&1`
+  改为 `-l <级别> >>/tmp/hysteria.log 2>&1`，默认级别 `info`。
+  选 `info` 而非 `warn` 的理由：`connected to server ... udpEnabled=` 是 Info 级，
+  而它是判断「服务端到底给不给 UDP」的**唯一**依据；hysteria 的 Info 是一次性的
+  （启动几行 + 每次握手一行），per-connection 日志都在 Debug，量可忽略。
+  新增【Hysteria2设定 → 日志级别】下拉（`ss_basic_hy2_log_level`，默认 `info`）。
+* **日志级别必须白名单**：非法级别会让 hysteria 打印 `unsupported log level` 后
+  `os.Exit(1)`（`app/cmd/root.go:141`）。若把 dbus 值直接透传，一个打错的日志档位就会
+  被 `start_hy2` 的自愈分支误判成「这份构建不接受 udpTProxy」并**永久落库**
+  `ss_runtime_hy2_udp_unsupported=1`，让 UDP 瘸掉。`hy2_log_level()` 兜住并回落 `info`。
+* **启动失败时打出真实原因**：旧版把 stderr 丢进 `/dev/null`，导致「剥掉 udpTProxy 再试」
+  这个结论无从证伪（第一次失败也可能是端口占用、别的键不认、内存不足）。现在重试之前
+  先把日志末尾 12 行打进插件日志。该结论仍是启发式的，不一致时以日志为准。
+* **新增「服务端 UDP 能力」判定**（`cru/udp.sh`）：这是此前**整个缺失**的一层。
+  旧代码只有一个 hy2 UDP 降级概念 —— `ss_runtime_hy2_udp_unsupported`
+  =「本机这份**构建**不认 udpTProxy」，没有任何一处表达「对端**服务端**在握手里
+  声明 `UDPEnabled=false`」。后者的现象是包正常走到 TPROXY、正常进 hysteria，
+  然后被 `HyClient.UDP()` 拒掉（`core/client/client.go:226` 返回
+  `DialError{"UDP not enabled"}`），**iptables 计数全部正常而游戏完全不通**。
+  新增运行时键 `ss_runtime_hy2_server_udp`，从日志里取 `udpEnabled=` 或
+  `UDP not enabled` 两条判据之一，命中 `0` 时 probe 报 `unsupported`（黄灯，不是红灯 ——
+  链路没坏，是对端不提供该能力）并给出「换节点或联系服务商」的处置。
+  判不出来一律留空按「支持」继续，绝不猜（`lazy=1` 默认值下要等第一个请求才握手）。
+* **探针改用增量判据**（`cru/udp.sh`）：`GAME_PKTS` / `TP_PKTS` 是**自建链以来的累计值**，
+  一旦大于 0 就永久粘住 —— 游戏关了、隧道断了、UDP 全程被拒，状态栏照样显示「已有流量」。
+  真机上这正好掩盖了故障：HY2 四分钟 114 包（0.42 包/秒）与 VLESS 3281 包（12 包/秒）
+  相差 29 倍，形态是「发出去没人回、游戏在退避重试」，但两者在旧判据下都只是 `>0`。
+  现在判活跃看**两次采样之间的增量**：有新增 → `flow`；累计 >0 但一个周期零新增 →
+  `ok` 并明说「若游戏正在运行，说明 UDP 只出不回」。已处理计数器归零（apply 后）
+  与快速重采样（连点详细状态页）两个边界，不会误报。
+* **「经代理」这个词收紧**：Game hook 命中只证明目的端口对上了，之后还要过
+  white_list / chnroute / ACL 三道分流才轮得到 TPROXY。旧文案一律报「已有流量经代理」，
+  比实际测到的强。现在 TPROXY 计数为 0 时改报 `warn`，并指出目标多半在白名单或
+  chnroute 国内段，给出加黑名单的处置。
+* **详细状态页改为现场采样**（`ss_proc_status.sh`）：打印 UDP 段之前同步跑一次
+  `cru/udp.sh`。这修掉了本页最容易骗人的地方 —— 原来它读 5 分钟前的 probe 缓存，
+  却在同一页现场执行 `iptables -nvL` 打实时计数，把两个采样点并排展示成矛盾，
+  一个纯显示问题掩盖了真故障。同时新增【hysteria 运行日志】段：过滤出全部 UDP 相关行
+  并附判读表（`udpEnabled=false` → 服务端无解；`=true` 且无 error → 继续往服务端出口查）。
+* **跨会话污染防护**：`start_hy2` 每次启动前清空 `/tmp/hysteria.log` 并清掉
+  `ss_runtime_hy2_server_udp`。否则换节点后旧日志里的 `UDP not enabled` 会被 grep 到，
+  把新节点误判成服务端不给 UDP。日志封顶 256KB 由 `cru/udp.sh` 每 5 分钟检查
+  （`/tmp` 是 tmpfs，吃的是内存），且**在读取判据之后**才轮转。
+
+### 5.2.9
+
+* **全局设置宽度**：“选择中国DNS”“DNS劫持”“节点域名解析DNS服务器”和“同步UDP与TCP”
+  四个选择框统一由 `300px` 增加到 `330px`（+10%）。
+* **附加功能宽度**：“替换为dnsmasq-fastlookup”选择框由 `370px` 增加到 `444px`（+20%）。
+* **响应式约束**：保留原有窄屏 `max-width` 限制；页面结构、配置键、事件处理和运行逻辑不变。
+* **版本与发布审计**：插件内部版本更新为 `5.2.9`；页面 JavaScript、配置一致性、Hysteria2
+  专项审计 76/76、差异格式及离线包 95 条内容/权限核对通过。
 
 ### 5.2.8-beta6
 

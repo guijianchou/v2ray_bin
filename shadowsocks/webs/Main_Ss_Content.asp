@@ -15,6 +15,31 @@
 <link rel="stylesheet" type="text/css" href="/device-map/device-map.css">
 <link rel="stylesheet" type="text/css" href="/res/shadowsocks.css">
 <link rel="stylesheet" type="text/css" href="/res/layer/theme/default/layer.css">
+<style type="text/css">
+	/* Merlin 静态资源不能统一追加查询参数。关键弹窗布局放在页面内，避免升级后
+	   浏览器仍命中旧 shadowsocks.css 时退回 absolute 定位并被空节点面板裁切。 */
+	#FormTitle {
+		overflow: visible !important;
+	}
+	#vpnc_settings.contentM_qis {
+		display: none;
+		position: fixed !important;
+		z-index: 1000 !important;
+		top: 50% !important;
+		left: 50% !important;
+		width: 650px !important;
+		max-width: calc(100vw - 24px) !important;
+		max-height: calc(100vh - 24px) !important;
+		height: auto !important;
+		margin: 0 !important;
+		overflow-x: hidden !important;
+		overflow-y: auto !important;
+		box-sizing: border-box !important;
+		-webkit-transform: translate(-50%, -50%) !important;
+		transform: translate(-50%, -50%) !important;
+		-webkit-overflow-scrolling: touch;
+	}
+</style>
 <script type="text/javascript" src="/state.js"></script>
 <script type="text/javascript" src="/popup.js"></script>
 <script type="text/javascript" src="/validator.js"></script>
@@ -37,7 +62,16 @@ var poped = 0;
 var x = 5;
 var refreshRate;
 
+function mount_node_dialog() {
+	var dialog = E("vpnc_settings");
+	var owner = document.forms["form"];
+	if (dialog && owner && dialog.parentNode !== owner) {
+		owner.appendChild(dialog);
+	}
+}
+
 function init() {
+	mount_node_dialog();
 	show_menu(menu_hook);
 	update_ss_ui(db_ss);
 	loadAllConfigs();
@@ -228,6 +262,107 @@ function makeHy2Bandwidth(label, valueId) {
 	return value + " mbps";
 }
 
+var HY2_DEFAULT_BANDWIDTH_UP = "100";
+var HY2_DEFAULT_BANDWIDTH_DOWN = "200";
+var hy2LoadedFallbackCongestion = null;
+var hy2GlobalLoadError = false;
+
+function isHy2PlainObject(value) {
+	return !!value && Object.prototype.toString.call(value) == "[object Object]";
+}
+
+function hasOnlyHy2Keys(obj, allowed) {
+	if (!isHy2PlainObject(obj)) {
+		return false;
+	}
+	var keys = Object.keys(obj);
+	for (var i = 0; i < keys.length; i++) {
+		if (!allowed[keys[i]]) {
+			return false;
+		}
+	}
+	return true;
+}
+
+function hy2Utf8ByteLength(value) {
+	try {
+		return unescape(encodeURIComponent(value)).length;
+	} catch (e) {
+		return -1;
+	}
+}
+
+function isValidHy2GlobalObject(obj) {
+	var topAllowed = { obfs: true, congestion: true, bandwidth: true };
+	if (!hasOnlyHy2Keys(obj, topAllowed) || Object.keys(obj).length == 0) {
+		return false;
+	}
+	if (typeof(obj.obfs) != "undefined") {
+		if (!isHy2PlainObject(obj.obfs) || (obj.obfs.type != "salamander" && obj.obfs.type != "gecko")) {
+			return false;
+		}
+		var obfsAllowed = { type: true };
+		obfsAllowed[obj.obfs.type] = true;
+		if (!hasOnlyHy2Keys(obj.obfs, obfsAllowed) || Object.keys(obj.obfs).length != 2) {
+			return false;
+		}
+		var obfsConfig = obj.obfs[obj.obfs.type];
+		if (obj.obfs.type == "salamander") {
+			if (!hasOnlyHy2Keys(obfsConfig, { password: true }) || Object.keys(obfsConfig).length != 1 ||
+				typeof(obfsConfig.password) != "string" || hy2Utf8ByteLength(obfsConfig.password) < 4) {
+				return false;
+			}
+		} else {
+			if (!hasOnlyHy2Keys(obfsConfig, { password: true, minPacketSize: true, maxPacketSize: true }) ||
+				typeof(obfsConfig.password) != "string" || hy2Utf8ByteLength(obfsConfig.password) < 4) {
+				return false;
+			}
+			var minPacketSize = typeof(obfsConfig.minPacketSize) == "undefined" ? 512 : obfsConfig.minPacketSize;
+			var maxPacketSize = typeof(obfsConfig.maxPacketSize) == "undefined" ? 1200 : obfsConfig.maxPacketSize;
+			if (typeof(minPacketSize) != "number" || minPacketSize % 1 != 0 || minPacketSize <= 0 ||
+				typeof(maxPacketSize) != "number" || maxPacketSize % 1 != 0 || maxPacketSize <= 0 ||
+				minPacketSize > maxPacketSize || maxPacketSize > 2048) {
+				return false;
+			}
+		}
+	}
+	if (typeof(obj.congestion) != "undefined") {
+		if (!isHy2PlainObject(obj.congestion)) {
+			return false;
+		}
+		if (obj.congestion.type == "bbr") {
+			if (!hasOnlyHy2Keys(obj.congestion, { type: true, bbrProfile: true })) {
+				return false;
+			}
+			if (typeof(obj.congestion.bbrProfile) != "undefined" &&
+				obj.congestion.bbrProfile != "standard" && obj.congestion.bbrProfile != "conservative" &&
+				obj.congestion.bbrProfile != "aggressive") {
+				return false;
+			}
+		} else if (obj.congestion.type == "reno") {
+			if (!hasOnlyHy2Keys(obj.congestion, { type: true }) || Object.keys(obj.congestion).length != 1) {
+				return false;
+			}
+		} else {
+			return false;
+		}
+	}
+	if (typeof(obj.bandwidth) != "undefined") {
+		if (!hasOnlyHy2Keys(obj.bandwidth, { up: true, down: true }) || Object.keys(obj.bandwidth).length == 0) {
+			return false;
+		}
+		var bandwidthKeys = ["up", "down"];
+		for (var j = 0; j < bandwidthKeys.length; j++) {
+			var bandwidthKey = bandwidthKeys[j];
+			if (typeof(obj.bandwidth[bandwidthKey]) != "undefined" &&
+				(typeof(obj.bandwidth[bandwidthKey]) != "string" || !/^[1-9][0-9]*\s+mbps$/.test(obj.bandwidth[bandwidthKey]))) {
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
 function loadHy2Bandwidth(value, valueId) {
 	if (!value) {
 		return;
@@ -344,6 +479,10 @@ function validateHy2Endpoint() {
 }
 
 function validateHy2GlobalJson() {
+	if (hy2GlobalLoadError) {
+		alert("错误！已保存的 Hysteria2 设定无法解析或结构不合法，请先检查或清除损坏的配置！");
+		return false;
+	}
 	if (!validateHy2Endpoint()) {
 		return false;
 	}
@@ -352,18 +491,29 @@ function validateHy2GlobalJson() {
 	var obfsPassword = E("ss_basic_hy2_obfs_password") ? $.trim(E("ss_basic_hy2_obfs_password").value) : "";
 	var geckoMin = E("ss_basic_hy2_gecko_min") ? $.trim(E("ss_basic_hy2_gecko_min").value) : "";
 	var geckoMax = E("ss_basic_hy2_gecko_max") ? $.trim(E("ss_basic_hy2_gecko_max").value) : "";
-	var congestionType = E("ss_basic_hy2_congestion_type") ? E("ss_basic_hy2_congestion_type").value : "";
+	var ccMode = E("ss_basic_hy2_cc_mode") ? E("ss_basic_hy2_cc_mode").value : "brutal";
 	var bbrProfile = E("ss_basic_hy2_bbr_profile") ? E("ss_basic_hy2_bbr_profile").value : "";
-	var bandwidthUp = makeHy2Bandwidth("上行", "ss_basic_hy2_bandwidth_up_value");
-	var bandwidthDown = makeHy2Bandwidth("下行", "ss_basic_hy2_bandwidth_down_value");
+	var bandwidthUp = "";
+	var bandwidthDown = "";
 	var switches = [
-		["ss_basic_hy2_udp", "UDP"],
 		["ss_basic_hy2_fast_open", "fastOpen"],
 		["ss_basic_hy2_lazy", "lazy"]
 	];
 
-	if (bandwidthUp === false || bandwidthDown === false) {
+	if (ccMode != "brutal" && ccMode != "bbr" && ccMode != "reno") {
+		alert("错误！Hysteria2 拥塞控制模式不合法！");
 		return false;
+	}
+	if (ccMode == "brutal") {
+		bandwidthUp = makeHy2Bandwidth("上行", "ss_basic_hy2_bandwidth_up_value");
+		bandwidthDown = makeHy2Bandwidth("下行", "ss_basic_hy2_bandwidth_down_value");
+		if (bandwidthUp === false || bandwidthDown === false) {
+			return false;
+		}
+		if (!bandwidthUp && !bandwidthDown) {
+			alert("错误！Hysteria2 Brutal 模式至少需要填写一个方向的带宽！");
+			return false;
+		}
 	}
 	for (var i = 0; i < switches.length; i++) {
 		var switchValue = E(switches[i][0]) ? E(switches[i][0]).value : "";
@@ -376,11 +526,7 @@ function validateHy2GlobalJson() {
 		alert("错误！Hysteria2 混淆类型不合法！");
 		return false;
 	}
-	if (congestionType != "" && congestionType != "bbr" && congestionType != "reno") {
-		alert("错误！Hysteria2 拥塞控制类型不合法！");
-		return false;
-	}
-	if (congestionType == "bbr" && bbrProfile != "standard" && bbrProfile != "conservative" && bbrProfile != "aggressive") {
+	if (ccMode == "bbr" && bbrProfile != "standard" && bbrProfile != "conservative" && bbrProfile != "aggressive") {
 		alert("错误！Hysteria2 BBR 模式不合法！");
 		return false;
 	}
@@ -424,13 +570,14 @@ function validateHy2GlobalJson() {
 			}
 		}
 	}
-	if (congestionType) {
-		obj.congestion = { type: congestionType };
-		if (congestionType == "bbr") {
-			obj.congestion.bbrProfile = bbrProfile || "standard";
-		}
+	if (ccMode == "bbr" && bbrProfile != "standard") {
+		obj.congestion = { type: "bbr", bbrProfile: bbrProfile };
+	} else if (ccMode == "reno") {
+		obj.congestion = { type: "reno" };
+	} else if (ccMode == "brutal" && hy2LoadedFallbackCongestion) {
+		obj.congestion = hy2LoadedFallbackCongestion;
 	}
-	if (bandwidthUp || bandwidthDown) {
+	if (ccMode == "brutal") {
 		obj.bandwidth = {};
 		if (bandwidthUp) {
 			obj.bandwidth.up = bandwidthUp;
@@ -439,6 +586,10 @@ function validateHy2GlobalJson() {
 			obj.bandwidth.down = bandwidthDown;
 		}
 	}
+	if (Object.keys(obj).length && !isValidHy2GlobalObject(obj)) {
+		alert("错误！Hysteria2 设定结构或参数不合法！");
+		return false;
+	}
 	E("ss_basic_hy2_global_json").value = Object.keys(obj).length ? JSON.stringify(obj, null, 2) : "";
 	var text = E("ss_basic_hy2_global_json").value;
 	if (!text) {
@@ -446,20 +597,9 @@ function validateHy2GlobalJson() {
 	}
 	try {
 		obj = JSON.parse(text);
-		var allowed = {
-			"obfs": true,
-			"congestion": true,
-			"bandwidth": true
-		};
-		if (!obj || Object.prototype.toString.call(obj) != "[object Object]" || Object.keys(obj).length == 0) {
-			alert("错误！Hysteria2设定必须是包含 obfs、congestion 或 bandwidth 的 JSON 对象！");
+		if (!isValidHy2GlobalObject(obj)) {
+			alert("错误！Hysteria2设定结构或参数不合法！");
 			return false;
-		}
-		for (var key in obj) {
-			if (!allowed[key]) {
-				alert("错误！Hysteria2设定目前只支持 obfs、congestion、bandwidth 三个顶层字段！");
-				return false;
-			}
 		}
 		E("ss_basic_hy2_global_json").value = JSON.stringify(obj, null, 2);
 		return true;
@@ -471,11 +611,30 @@ function validateHy2GlobalJson() {
 
 function loadHy2GlobalForm() {
 	var el = E("ss_basic_hy2_global_json");
-	if (!el || !el.value) {
+	var modeEl = E("ss_basic_hy2_cc_mode");
+	if (!el || !modeEl) {
+		return;
+	}
+	hy2LoadedFallbackCongestion = null;
+	hy2GlobalLoadError = false;
+	var savedMode = (typeof(db_ss) != "undefined" && typeof(db_ss["ss_basic_hy2_cc_mode"]) != "undefined") ? String(db_ss["ss_basic_hy2_cc_mode"]) : "";
+	if (savedMode != "brutal" && savedMode != "bbr" && savedMode != "reno") {
+		savedMode = "";
+	}
+	if (!el.value) {
+		modeEl.value = savedMode || "brutal";
+		if (modeEl.value == "brutal") {
+			E("ss_basic_hy2_bandwidth_up_value").value = HY2_DEFAULT_BANDWIDTH_UP;
+			E("ss_basic_hy2_bandwidth_down_value").value = HY2_DEFAULT_BANDWIDTH_DOWN;
+		}
+		updateHy2GlobalForm();
 		return;
 	}
 	try {
 		var obj = JSON.parse(el.value);
+		if (!isValidHy2GlobalObject(obj)) {
+			throw new Error("invalid Hysteria2 global config schema");
+		}
 		if (obj.obfs && obj.obfs.type) {
 			E("ss_basic_hy2_obfs_type").value = obj.obfs.type;
 			if (obj.obfs[obj.obfs.type] && obj.obfs[obj.obfs.type].password) {
@@ -486,26 +645,47 @@ function loadHy2GlobalForm() {
 				E("ss_basic_hy2_gecko_max").value = obj.obfs.gecko.maxPacketSize || "";
 			}
 		}
+		// 旧版没有独立模式键：bandwidth 才代表 Brutal；只有 obfs 等非拥塞配置时，
+		// Hysteria 历史默认仍是 BBR standard，不能因新版 UI 默认值而改写用户行为。
+		var inferredMode = "bbr";
+		if (obj.bandwidth) {
+			inferredMode = "brutal";
+		} else if (obj.congestion && (obj.congestion.type == "bbr" || obj.congestion.type == "reno")) {
+			inferredMode = obj.congestion.type;
+		}
+		modeEl.value = savedMode || inferredMode;
 		if (obj.congestion && obj.congestion.type) {
-			E("ss_basic_hy2_congestion_type").value = obj.congestion.type;
 			E("ss_basic_hy2_bbr_profile").value = obj.congestion.bbrProfile || "standard";
 		}
+		if (modeEl.value == "brutal" && obj.congestion && (obj.congestion.type == "bbr" || obj.congestion.type == "reno")) {
+			hy2LoadedFallbackCongestion = obj.congestion;
+		}
 		if (obj.bandwidth) {
+			E("ss_basic_hy2_bandwidth_up_value").value = "";
+			E("ss_basic_hy2_bandwidth_down_value").value = "";
 			loadHy2Bandwidth(obj.bandwidth.up, "ss_basic_hy2_bandwidth_up_value");
 			loadHy2Bandwidth(obj.bandwidth.down, "ss_basic_hy2_bandwidth_down_value");
+		} else if (modeEl.value == "brutal") {
+			E("ss_basic_hy2_bandwidth_up_value").value = HY2_DEFAULT_BANDWIDTH_UP;
+			E("ss_basic_hy2_bandwidth_down_value").value = HY2_DEFAULT_BANDWIDTH_DOWN;
 		}
 		updateHy2GlobalForm();
 	} catch (e) {
-		console.log("Hysteria2 global config parse error: " + e);
+		hy2GlobalLoadError = true;
+		E("ss_basic_hy2_bandwidth_up_value").value = "";
+		E("ss_basic_hy2_bandwidth_down_value").value = "";
+		updateHy2GlobalForm();
+		console.log("Hysteria2 global config load error: " + e);
 	}
 }
 
 function updateHy2GlobalForm() {
 	var obfsType = E("ss_basic_hy2_obfs_type").value;
-	var congestionType = E("ss_basic_hy2_congestion_type").value;
+	var ccMode = E("ss_basic_hy2_cc_mode").value;
 	showhide("ss_basic_hy2_obfs_password_span", !!obfsType);
 	showhide("ss_basic_hy2_gecko_span", obfsType == "gecko");
-	showhide("ss_basic_hy2_bbr_profile_span", congestionType == "bbr");
+	showhide("ss_basic_hy2_bbr_profile_span", ccMode == "bbr");
+	showhide("ss_basic_hy2_bandwidth_span", ccMode == "brutal");
 }
 
 function save() {
@@ -536,8 +716,8 @@ function save() {
 	//define dbus object to save
 	var dbus = {};
 	//key define
-	var params_input = ["ssconf_basic_node", "ss_basic_mode", "ss_basic_server", "ss_basic_port", "ss_basic_method", "ss_basic_koolgame_udp", "ss_basic_ss_v2ray_plugin", "ss_basic_ss_v2ray_plugin_opts", "ss_basic_rss_protocol", "ss_basic_naive_protocol","ss_basic_naive_user","ss_basic_rss_protocol_param", "ss_basic_rss_obfs", "ss_basic_rss_obfs_param", "ssconf_basic_test_node", "ssconf_basic_test_domain", "ss_dns_china", "ss_dns_china_user", "ss_foreign_dns", "ss_dns2socks_user", "ss_chinadns_user", "ss_chinadns1_user",  "ss_sstunnel_user", "ss_direct_user", "ss_basic_rule_update", "ss_basic_rule_update_time", "ss_acl_default_port", "ss_acl_default_mode", "ss_basic_v2ray_uuid", "ss_basic_v2ray_alterid","ss_basic_v2ray_protocol", "ss_basic_v2ray_security", "ss_basic_v2ray_network", "ss_basic_v2ray_headtype_tcp", "ss_basic_v2ray_headtype_kcp", "ss_basic_v2ray_network_host", "ss_basic_v2ray_serviceName", "ss_basic_v2ray_network_path", "ss_basic_v2ray_network_tlshost", "ss_basic_trojan_sni", "ss_basic_trojan_binary", "ss_basic_trojan_network", "ss_basic_fingerprint", "ss_basic_v2ray_network_flow", "ss_basic_v2ray_network_security", "ss_basic_v2ray_mux_concurrency", "ss_basic_xray_publicKey", "ss_basic_xray_shortId",	"ss_reboot_check", "ss_basic_week", "ss_basic_day", "ss_basic_inter_min", "ss_basic_inter_hour", "ss_basic_inter_day", "ss_basic_inter_pre", "ss_basic_time_hour", "ss_basic_time_min", "ss_basic_tri_reboot_time", "ss_basic_tri_reboot_policy", "ss_basic_dnsmasq_fastlookup", "ss_basic_server_resolver", "ss_basic_server_resolver_user", "ss_basic_udp_sync", "ss_basic_udp_sync_game_port", "ss_basic_dns_hijack", "ss_basic_hy2_udp", "ss_basic_hy2_fast_open", "ss_basic_hy2_lazy"];
-	var params_check = ["ss_basic_enable", "ss_basic_gfwlist_update", "ss_basic_chnroute_update", "ss_basic_cdn_update", "ss_basic_v2ray_use_json", "ss_basic_v2ray_mux_enable","ss_basic_allowinsecure", "ss_basic_fragment"];
+	var params_input = ["ssconf_basic_node", "ss_basic_mode", "ss_basic_server", "ss_basic_port", "ss_basic_method", "ss_basic_koolgame_udp", "ss_basic_ss_v2ray_plugin", "ss_basic_ss_v2ray_plugin_opts", "ss_basic_rss_protocol", "ss_basic_naive_protocol","ss_basic_naive_user","ss_basic_rss_protocol_param", "ss_basic_rss_obfs", "ss_basic_rss_obfs_param", "ssconf_basic_test_node", "ssconf_basic_test_domain", "ss_dns_china", "ss_dns_china_user", "ss_foreign_dns", "ss_dns2socks_user", "ss_chinadns_user", "ss_chinadns1_user",  "ss_sstunnel_user", "ss_direct_user", "ss_basic_rule_update", "ss_basic_rule_update_time", "ss_acl_default_port", "ss_acl_default_mode", "ss_basic_v2ray_uuid", "ss_basic_v2ray_alterid","ss_basic_v2ray_protocol", "ss_basic_v2ray_security", "ss_basic_v2ray_network", "ss_basic_v2ray_headtype_tcp", "ss_basic_v2ray_headtype_kcp", "ss_basic_v2ray_network_host", "ss_basic_v2ray_serviceName", "ss_basic_v2ray_network_path", "ss_basic_v2ray_network_tlshost", "ss_basic_trojan_sni", "ss_basic_trojan_binary", "ss_basic_trojan_network", "ss_basic_fingerprint", "ss_basic_v2ray_network_flow", "ss_basic_v2ray_network_security", "ss_basic_v2ray_mux_concurrency", "ss_basic_xray_publicKey", "ss_basic_xray_shortId",	"ss_reboot_check", "ss_basic_week", "ss_basic_day", "ss_basic_inter_min", "ss_basic_inter_hour", "ss_basic_inter_day", "ss_basic_inter_pre", "ss_basic_time_hour", "ss_basic_time_min", "ss_basic_tri_reboot_time", "ss_basic_tri_reboot_policy", "ss_basic_dnsmasq_fastlookup", "ss_basic_server_resolver", "ss_basic_server_resolver_user", "ss_basic_udp_sync", "ss_basic_udp_sync_game_port", "ss_basic_hy2_cc_mode", "ss_basic_hy2_fast_open", "ss_basic_hy2_lazy"];
+	var params_check = ["ss_basic_enable", "ss_basic_gfwlist_update", "ss_basic_chnroute_update", "ss_basic_cdn_update", "ss_basic_v2ray_use_json", "ss_basic_v2ray_mux_enable","ss_basic_allowinsecure", "ss_basic_fragment", "ss_basic_dns_hijack"];
 	var params_base64_a = ["ss_dnsmasq", "ss_wan_white_ip", "ss_wan_white_domain", "ss_wan_black_ip", "ss_wan_black_domain"];
 	var params_base64_b = ["ss_basic_password", "ss_basic_custom", "ss_basic_hy2_global_json"];
 	// collect data from input
@@ -884,10 +1064,10 @@ function update_udp_indicator() {
 		"full":            ["全量UDP",   "ok"],
 		"game":            ["游戏模式",  "ok"],
 		// 【能力不支持(黄) vs 环境故障(红)】这两类要分开，原来一律标红是误导：
-		//   node   —— hy2 的UDP开关没勾 / naive、anytls 本插件没配透明UDP入站
-		//   plugin —— hy2 构建不认 udpTProxy / SIP003 simple-obfs 没有UDP通路
+		//   node   —— Hysteria2 受本固件内核限制，或 naive/anytls 未配置透明UDP入站
+		//   plugin —— SIP003 simple-obfs 没有UDP通路
 		//     这两类链路本身是好的，是【这个节点或协议提供不了UDP加速】，
-		//     用户换个节点、勾个开关就解决了，标红会让人以为插件坏了。
+		//     用户需要换支持当前UDP路径的节点，标红会让人误以为插件环境损坏。
 		//   kernel —— 内核不接受TPROXY / fwmark 0x07 被占 / 路由表310被占
 		//     这才是真故障：换节点也没用，必须红灯。
 		"degraded_node":   ["节点不支持UDP加速", "warn"],
@@ -930,12 +1110,7 @@ function update_udp_indicator() {
 	$("#ss_state4").html(html).attr("title", tip).css("color", "");
 }
 
-// DNS劫持状态指示：与 UDP 那行严格对称。
-// 存在的理由：ss_basic_dns_hijack 是用户的请求值，而【全部强制】档有两条静默回退路径 ——
-// ①53 改道规则没能完整写入 ②本机 dnsmasq 未就绪（含 dnsmasq-fastlookup 替换后起不来）。
-// 两种情况都会退回【默认】档，此前界面上完全看不出来：下拉框照旧显示"全部"，
-// 用户以为 DoT/DoH 正在被拦、白名单可靠生效，实际并没有。
-// 数据来源：ssconfig.sh 的 write_dns_runtime_state()，在 chromecast 里按实际走到的分支回写。
+// DNS劫持状态指示。数据由 ssconfig.sh 的 write_dns_runtime_state() 回写。
 function update_dns_indicator() {
 	if (!E("ss_state5")) return;
 	var st = udp_rt("ss_runtime_dns_state");
@@ -949,13 +1124,9 @@ function update_dns_indicator() {
 			'<span class="ss-chip-note">应用一次配置后自动刷新</span>').attr("title", "");
 		return;
 	}
-	// [芯片文案, 芯片样式]。fallback_default 是唯一需要用户采取行动的状态，
-	// 用 crit 并把原因摊在行内 —— 它意味着用户选了"全部"但实际没生效。
 	var map = {
-		"off":              ["关闭",     "idle"],
-		"default":          ["默认",     "ok"],
-		"all":              ["全部强制", "ok"],
-		"fallback_default": ["已回退",   "crit"]
+		"off":     ["关闭", "idle"],
+		"default": ["默认", "ok"]
 	};
 	var hit = map[st] || ["未知", "idle"];
 	var html = 'DNS劫持 <span class="ss-chip ss-chip-' + hit[1] + '">' + esc(hit[0]) + '</span>';
@@ -971,19 +1142,6 @@ function update_dns_indicator() {
 			'<span class="ss-chip-note ss-chip-note-crit">已选替换但实际未挂载，多为与当前dnsmasq配置不兼容（--test未通过）</span>';
 	}
 
-	// 7913 解析器有没有国内仲裁。这是"直连网页偶尔卡顿"的结构性成因所在：
-	// 纯隧道型解析器在隧道抖动时没有国内上游可退，不在 gfwlist/cdn 列表里的域名会解析超时。
-	// 只在「全部强制」档提示 —— 该档把所有客户端都拉进这条链路，影响面最大。
-	var arb = udp_rt("ss_runtime_dns_arbiter");
-	if (st == "all" && arb == "tunnel_only") {
-		html += '<span class="ss-chip ss-chip-warn">7913无国内仲裁</span>' +
-			'<span class="ss-chip-note">隧道抖动时非gfwlist/cdn域名会解析超时（表现为直连网页偶尔卡顿）；' +
-			'把【国外DNS方案】改为 ChinaDNS-NG 或 chinadns1 可从根上消除</span>';
-	}
-
-	if (st == "fallback_default" && txt) {
-		html += '<span class="ss-chip-note ss-chip-note-crit">' + esc(txt) + '</span>';
-	}
 	$("#ss_state5").html(html).attr("title", txt || "").css("color", "");
 }
 
@@ -1064,10 +1222,51 @@ function apply_game_mode_limit() {
 	set_game_option(E("ss_node_table_mode"), is_ss_node_dialog());
 }
 
+// 当前生效节点是不是 Hysteria2。
+// 和 is_ss_node() 一样读 ssconf_basic_*_<n>（当前生效节点），不是对话框里正在编辑的那个。
+function is_hy2_node() {
+	var node_sel = E("ssconf_basic_node").value;
+	return db_ss["ssconf_basic_trojan_binary_" + node_sel] == "Hysteria2";
+}
+
+// Hysteria2 节点下把「同步UDP与TCP」整档置 0 并禁用。
+//
+// 为什么是禁用而不是留着让用户选：hysteria 的 udpTProxy 在本固件内核上【结构性不可用】。
+// 它只把每个 (src,dst) 的首包交给通配监听器，随后建一个 connected IP_TRANSPARENT socket，
+// 指望内核把该四元组的后续包直接投递给它；这个接管靠 xt_TPROXY 的两段查找
+// （先 established 后 listener），而 UDP 的 established 那段是 2.6.37 才进主线的，
+// 本插件只支持的 Merlin AM380 内核是 2.6.36.4，没有。
+// 于是每个包都落回通配监听器、每包新建一次会话，服务端按 SessionID 分配出站 socket，
+// 游戏服务器看到的源端口每包都在变 —— 会话永远建不起来，同时几十个孤儿会话空转烧CPU。
+// 后端 udp_tproxy_supported 已经不再把 Hysteria2 算作支持，界面留一个"选了也没用"的
+// 下拉框只会让人以为是别处坏了，所以这里跟着置灰并写明原因。
+function apply_hy2_udp_limit() {
+	var sel = E("ss_basic_udp_sync");
+	if (!sel) return;
+	var hy2 = is_hy2_node();
+	if (hy2) {
+		// 记下锁定前的档位：否则用户在 hy2 节点上点一次提交，之前选的
+		// 「仅代理QUIC+Game」就被 0 覆盖掉，切回 VLESS 还得重选一遍。
+		if (sel.value != "0") sel.setAttribute("data-pre-hy2", sel.value);
+		sel.value = "0";
+	} else if (sel.disabled && sel.getAttribute("data-pre-hy2")) {
+		// 从 hy2 切回 Xray 系节点：把锁定前的档位原样还回去。
+		// 这里读的 sel.disabled 还是上一轮的状态，正好用来判断"刚才是锁着的"。
+		sel.value = sel.getAttribute("data-pre-hy2");
+		sel.removeAttribute("data-pre-hy2");
+	}
+	sel.disabled = hy2;
+	// 禁用的 select 仍然可以被 E(id).value 读到，params_input 那套收集方式不受影响。
+	showhide("ss_basic_udp_sync_hy2_note", hy2);
+}
+
 function verifyFields(r) {
 	// some variable
 	var node_sel = E("ssconf_basic_node").value;
 	apply_game_mode_limit();
+	// 也在这里调一次：update_visibility() 只挂在标签页切换上，而换节点走的是 verifyFields。
+	// 少了这句，用户在「全局设定」页里从 VLESS 切到 hy2，锁定要等切一次标签页才生效。
+	apply_hy2_udp_limit();
 	var ssmode = E("ss_basic_mode").value;
     var ss_on = false;
     var ssr_on = false;
@@ -1394,6 +1593,7 @@ function verifyFields(r) {
 // 全项目没有任何 showhide 引用它们，该组不可能为空。
 function update_visibility() {
 	apply_game_mode_limit();
+	apply_hy2_udp_limit();
 	var a = E("ss_basic_rule_update").value == "1";
 	var e = E("ss_dns_china").value == "12";
 	var f = E("ss_foreign_dns").value;
@@ -3597,7 +3797,8 @@ function pullLANIPList(obj) {
 	var element = E('ClientList_Block');
 	var isMenuopen = element.offsetWidth > 0 || element.offsetHeight > 0;
 	if (isMenuopen == 0) {
-		obj.src = "/images/arrow-top.gif";
+		// 箭头由 CSS 画（#pull_arrow::before），开合只切 class，不再换固件的红色 GIF
+		obj.className = "ss-acl-ip-trigger is-open";
 		element.style.display = 'block';
 	} else{
 		hideClients_Block();
@@ -3605,7 +3806,7 @@ function pullLANIPList(obj) {
 }
 
 function hideClients_Block() {
-	E("pull_arrow").src = "/images/arrow-down.gif";
+	E("pull_arrow").className = "ss-acl-ip-trigger";
 	E('ClientList_Block').style.display = 'none';
 	validator.validIPForm(document.form.ss_acl_ip, 0);
 }
@@ -4382,7 +4583,7 @@ function set_cron(action) {
 																	# 请保证你json内的outbound配置正确！！！
 																	# ------------------------------------
 																	# 同样支持vmess://链接填入，格式如下：
-																	vmess://ew0KICAidiI6ICIyIiwNCiAgInBzIjogIjIzMyIsDQogICJhZGQiOiAiMjMzLjIzMy4yMzMuMjMzIiwNCiAgInBvcnQiOiAiMjMzIiwNCiAgImlkIjogImFlY2EzYzViLTc0NzktNDFjMy1hMWUzLTAyMjkzYzg2Y2EzOCIsDQogICJhaWQiOiAiMjMzIiwNCiAgIm5ldCI6ICJ3cyIsDQogICJ0eXBlIjogIm5vbmUiLA0KICAiaG9zdCI6ICJ3d3cuMjMzLmNvbSIsDQogICJwYXRoIjogIi8yMzMiLA0KICAidGxzIjogInRscyINCn0=" rows="32" style="width:99%; font-family:'Lucida Console'; font-size:12px;background:#475A5F;color:#FFFFFF;" id="ss_node_table_v2ray_json" name="ss_node_table_v2ray_json" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" title=""></textarea>
+																	vmess://ew0KICAidiI6ICIyIiwNCiAgInBzIjogIjIzMyIsDQogICJhZGQiOiAiMjMzLjIzMy4yMzMuMjMzIiwNCiAgInBvcnQiOiAiMjMzIiwNCiAgImlkIjogImFlY2EzYzViLTc0NzktNDFjMy1hMWUzLTAyMjkzYzg2Y2EzOCIsDQogICJhaWQiOiAiMjMzIiwNCiAgIm5ldCI6ICJ3cyIsDQogICJ0eXBlIjogIm5vbmUiLA0KICAiaG9zdCI6ICJ3d3cuMjMzLmNvbSIsDQogICJwYXRoIjogIi8yMzMiLA0KICAidGxzIjogInRscyINCn0=" rows="12" style="width:99%; font-family:'Lucida Console'; font-size:12px;background:#475A5F;color:#FFFFFF;" id="ss_node_table_v2ray_json" name="ss_node_table_v2ray_json" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" title=""></textarea>
 																</td>
 															</tr>
 															</table>
@@ -4818,7 +5019,7 @@ function set_cron(action) {
 																	# 请保证你json内的outbound配置正确！！！
 																	# ------------------------------------
 																	# 同样支持vmess://链接填入，格式如下：
-																	vmess://ew0KICAidiI6ICIyIiwNCiAgInBzIjogIjIzMyIsDQogICJhZGQiOiAiMjMzLjIzMy4yMzMuMjMzIiwNCiAgInBvcnQiOiAiMjMzIiwNCiAgImlkIjogImFlY2EzYzViLTc0NzktNDFjMy1hMWUzLTAyMjkzYzg2Y2EzOCIsDQogICJhaWQiOiAiMjMzIiwNCiAgIm5ldCI6ICJ3cyIsDQogICJ0eXBlIjogIm5vbmUiLA0KICAiaG9zdCI6ICJ3d3cuMjMzLmNvbSIsDQogICJwYXRoIjogIi8yMzMiLA0KICAidGxzIjogInRscyINCn0=" rows="40" style="width:99%; font-family:'Lucida Console'; font-size:12px;background:#475A5F;color:#FFFFFF;" id="ss_basic_v2ray_json" name="ss_basic_v2ray_json" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" title=""></textarea>
+																	vmess://ew0KICAidiI6ICIyIiwNCiAgInBzIjogIjIzMyIsDQogICJhZGQiOiAiMjMzLjIzMy4yMzMuMjMzIiwNCiAgInBvcnQiOiAiMjMzIiwNCiAgImlkIjogImFlY2EzYzViLTc0NzktNDFjMy1hMWUzLTAyMjkzYzg2Y2EzOCIsDQogICJhaWQiOiAiMjMzIiwNCiAgIm5ldCI6ICJ3cyIsDQogICJ0eXBlIjogIm5vbmUiLA0KICAiaG9zdCI6ICJ3d3cuMjMzLmNvbSIsDQogICJwYXRoIjogIi8yMzMiLA0KICAidGxzIjogInRscyINCn0=" rows="12" style="width:99%; font-family:'Lucida Console'; font-size:12px;background:#475A5F;color:#FFFFFF;" id="ss_basic_v2ray_json" name="ss_basic_v2ray_json" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" title=""></textarea>
 													</td>
 												</tr>
 												<tr id="v2ray_binary_update_tr" style="display: none;">
@@ -4950,17 +5151,11 @@ function set_cron(action) {
 													</td>
 												</tr>
 												<tr>
-													<th>DNS劫持（原chromecast功能）&nbsp;&nbsp;<a class="hintstyle" href="javascript:void(0);" onclick="openssHint(106)"><font color="#ffcc00"><u>[说明]</u></font></a></th>
-													<td>
-														<select id="ss_basic_dns_hijack" name="ss_basic_dns_hijack" class="input_option" onchange="verifyFields(this, 1);">
-															<!-- "关闭"选项已移除：不劫持会让黑白名单里的【域名】条目直接失效
-															     （域名条目靠客户端经本机 dnsmasq 解析时写入 ipset 才生效），
-															     属于把插件的核心分流能力关掉，没有保留的理由。
-															     后端仍保留 0 的分支做兜底，且启动时会把历史存量的 0 迁移成 1。 -->
-															<option value="1" selected>默认（劫持UDP/53，原chromecast）</option>
-															<option value="2">全部（强制TCP/UDP-53+拦DoT/DoH，白名单可靠）</option>
-														</select>
-													</td>
+											<th>DNS劫持（原chromecast功能）&nbsp;&nbsp;<a class="hintstyle" href="javascript:void(0);" onclick="openssHint(106)"><font color="#ffcc00"><u>[说明]</u></font></a></th>
+											<td>
+												<input type="checkbox" id="ss_basic_dns_hijack" name="ss_basic_dns_hijack" checked onclick="verifyFields(this, 1);" />
+												<label for="ss_basic_dns_hijack">确认启用默认模式（劫持 UDP/53）</label>
+											</td>
 												</tr>
 												<tr>
 													<th>节点域名解析DNS服务器&nbsp;&nbsp;<a class="hintstyle" href="javascript:void(0);" onclick="openssHint(107)"><font color="#ffcc00"><u>[说明]</u></font></a></th>
@@ -5001,6 +5196,7 @@ bogus-nxdomain=220.250.64.18" rows="8" style="width:99%; font-family:'Lucida Con
 															<option value="3">仅代理QUIC+Game（QUIC+自定义UDP端口）</option>
 															<option value="1">全量UDP（高负载）</option>
 														</select>
+														<span id="ss_basic_udp_sync_hy2_note" style="display:none;color:#FC0;">Hysteria2 节点不支持透明UDP，已锁定为【关闭】。原因是本固件内核(2.6.36.4)的 xt_TPROXY 不做 UDP 的 established 接管（2.6.37 才引入），而 hysteria 的 udpTProxy 恰好依赖它 —— 每个包都会被当成新会话，游戏永远连不上。TCP代理不受影响；要用UDP/游戏加速请改用 Xray 系节点（VLESS/VMess/Trojan）。</span>
 													</td>
 												</tr>
 												<tr id="ss_basic_udp_sync_game_port_tr" style="display:none;">
@@ -5012,7 +5208,7 @@ bogus-nxdomain=220.250.64.18" rows="8" style="width:99%; font-family:'Lucida Con
 													</td>
 												</tr>
 												<tr>
-											<th width="20%">Hysteria2设定&nbsp;&nbsp;<a class="hintstyle" href="javascript:void(0);" onclick="openssHint(118)"><font color="#ffcc00"><u>[说明]</u></font></a><br><span style="color:#FC0;font-weight:normal;">默认不填</span></th>
+											<th width="20%">Hysteria2设定&nbsp;&nbsp;<a class="hintstyle" href="javascript:void(0);" onclick="openssHint(118)"><font color="#ffcc00"><u>[说明]</u></font></a><br><span style="color:#FC0;font-weight:normal;">默认 Brutal</span></th>
 													<td>
 																							<!-- 改成 grid：原先用 <span style="width:70px"> + <br> 拼伪两栏，各行控件宽度不同时
 									     纵向对不齐（真机问题3）。现在标签列与控件列各自成列，天然对齐。
@@ -5044,15 +5240,15 @@ bogus-nxdomain=220.250.64.18" rows="8" style="width:99%; font-family:'Lucida Con
 											</span>
 										</div>
 										<div class="ss-hy2-row">
-											<span class="ss-hy2-k">拥塞控制</span>
-											<span class="ss-hy2-v ss-hy2-nowrap">
-												<select id="ss_basic_hy2_congestion_type" name="ss_basic_hy2_congestion_type" class="input_option" style="width:175px;" onchange="updateHy2GlobalForm();">
-													<option value="">默认(bbr + standard)</option>
-													<option value="bbr">bbr</option>
-													<option value="reno">reno</option>
+										<span class="ss-hy2-k">拥塞控制</span>
+										<span class="ss-hy2-v ss-hy2-nowrap">
+											<select id="ss_basic_hy2_cc_mode" name="ss_basic_hy2_cc_mode" class="input_option" style="width:175px;" onchange="updateHy2GlobalForm();">
+												<option value="brutal" selected>Brutal（默认）</option>
+												<option value="bbr">BBR</option>
+												<option value="reno">Reno</option>
 												</select>
 												<span id="ss_basic_hy2_bbr_profile_span" class="ss-hy2-sub" style="display:none;">
-													<label>BBR模式</label>
+													<label>模式</label>
 													<select id="ss_basic_hy2_bbr_profile" name="ss_basic_hy2_bbr_profile" class="input_option" style="width:140px;">
 														<option value="standard">standard</option>
 														<option value="conservative">conservative</option>
@@ -5061,25 +5257,15 @@ bogus-nxdomain=220.250.64.18" rows="8" style="width:99%; font-family:'Lucida Con
 												</span>
 											</span>
 										</div>
-										<div class="ss-hy2-row">
-											<span class="ss-hy2-k">带宽</span>
+									<div id="ss_basic_hy2_bandwidth_span" class="ss-hy2-row">
+											<span class="ss-hy2-k">Brutal带宽</span>
 											<span class="ss-hy2-v">
 												<label>上行</label>
-												<input type="text" class="input_ss_table" id="ss_basic_hy2_bandwidth_up_value" name="ss_basic_hy2_bandwidth_up_value" style="width:70px;" placeholder="100" value="">
+											<input type="text" class="input_ss_table" id="ss_basic_hy2_bandwidth_up_value" name="ss_basic_hy2_bandwidth_up_value" style="width:70px;" placeholder="100" value="100">
 												<label>mbps</label>
 												<label class="ss-hy2-gap">下行</label>
-												<input type="text" class="input_ss_table" id="ss_basic_hy2_bandwidth_down_value" name="ss_basic_hy2_bandwidth_down_value" style="width:70px;" placeholder="200" value="">
+											<input type="text" class="input_ss_table" id="ss_basic_hy2_bandwidth_down_value" name="ss_basic_hy2_bandwidth_down_value" style="width:70px;" placeholder="200" value="200">
 												<label>mbps</label>
-											</span>
-										</div>
-										<div class="ss-hy2-row">
-											<span class="ss-hy2-k">UDP</span>
-											<span class="ss-hy2-v ss-hy2-switch-row">
-												<select id="ss_basic_hy2_udp" name="ss_basic_hy2_udp" class="input_option ss-hy2-switch" onchange="verifyFields(this, 1);">
-													<option value="0" selected>关闭</option>
-													<option value="1">打开</option>
-												</select>
-												<label class="ss-hy2-switch-note" for="ss_basic_hy2_udp">启用透明 UDP 代理，为「同步UDP与TCP」支持</label>
 											</span>
 										</div>
 										<div class="ss-hy2-row">
@@ -5251,7 +5437,7 @@ taobao.com
 												<td class="ss-acl-ip-cell">
 													<div class="ss-acl-ip-control">
 														<input type="text" maxlength="15" class="input_15_table" id="ss_acl_ip" name="ss_acl_ip" align="left" onkeypress="return validator.isIPAddr(this, event)" autocomplete="off" onClick="hideClients_Block();" autocorrect="off" autocapitalize="off">
-												<span class="ss-acl-ip-trigger"><img id="pull_arrow" class="ss-acl-ip-arrow" src="images/arrow-down.gif" onclick="pullLANIPList(this);" title="<#select_IP#>" alt=""></span>
+												<button type="button" id="pull_arrow" class="ss-acl-ip-trigger" onclick="pullLANIPList(this);" title="<#select_IP#>"><span class="ss-acl-ip-arrow"></span></button>
 													</div>
 													<div id="ClientList_Block" class="clientlist_dropdown"></div>
 														</td>

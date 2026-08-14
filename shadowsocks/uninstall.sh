@@ -50,11 +50,14 @@ sed -i '/ss_config.sh/d;/ssconfig.sh/d' /koolshare/scripts/nat-start >/dev/null 
 # 旧状态显示在新装的界面上。
 for k in ss_runtime_udp_state ss_runtime_udp_text ss_runtime_udp_probe \
          ss_runtime_udp_probe_text ss_runtime_udp_probe_time \
+         ss_runtime_udp_probe_game_prev ss_runtime_udp_probe_game_prev_t \
          ss_runtime_dns_state ss_runtime_dns_text ss_runtime_dns_fastlookup \
          ss_runtime_dns_arbiter ss_runtime_dns_fallback \
-         ss_runtime_hy2_udp_unsupported; do
+         ss_runtime_hy2_udp_unsupported ss_runtime_hy2_server_udp \
+         ss_basic_hy2_udp ss_basic_hy2_log_level; do
 	dbus remove "$k" >/dev/null 2>&1
 done
+rm -f /tmp/hysteria.log >/dev/null 2>&1
 
 dbus remove softcenter_module_shadowsocks_home_url
 dbus remove softcenter_module_shadowsocks_install

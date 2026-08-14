@@ -143,7 +143,9 @@ font[color="#A0A0A0"] { color: var(--ss-muted) !important; }
 		inset 0 1px 0 var(--ss-hair-in),
 		0 1px 2px rgba(0, 0, 0, .18),
 		0 10px 28px rgba(0, 0, 0, .16);
-	overflow: hidden;                                 /* 让子元素被外层圆角裁切 */
+	/* 节点编辑面板是本表格的定位后代，hidden 会把面板和保存按钮裁在
+	   #FormTitle 底边。外层本身已有背景和圆角，不需要靠 overflow 裁切。 */
+	overflow: visible;
 }
 #FormTitle td[bgcolor="#4D595D"] { background: transparent !important; }
 
@@ -756,12 +758,23 @@ font[color="#A0A0A0"] { color: var(--ss-muted) !important; }
 /* --- 弹窗：必须默认隐藏且脱离文档流（由 JS fadeIn/fadeOut 控制显隐）--- */
 .contentM_qis {
 	display: none;
-	position: absolute;
-	z-index: 200;
-	top: 240px;
-	margin-left: 50px;
-	width: 650px;
+	position: fixed;
+	z-index: 1000;
+	top: 50%;
+	left: 50%;
+	width: min(650px, calc(100vw - 24px));
+	max-height: calc(100vh - 24px);
 	height: auto;
+	margin-top: 0 !important;
+	margin-right: 0 !important;
+	margin-bottom: 0 !important;
+	margin-left: 0 !important;
+	overflow-x: hidden;
+	overflow-y: auto;
+	box-sizing: border-box;
+	transform: translate(-50%, -50%);
+	-webkit-overflow-scrolling: touch;
+	overscroll-behavior: contain;
 }
 .content_status {
 	display: none;
@@ -790,13 +803,23 @@ font[color="#A0A0A0"] { color: var(--ss-muted) !important; }
 /* 进度条与它的文字：z-index 决定盖在弹窗之上，丢了会被弹窗遮住 */
 .Bar_container      { z-index: 100; }
 #proceeding_img_text { z-index: 101; }
-/* #FormTitle 的两个浏览器变体（ss-menu.js:80/87/93 按 UA 挂上去，是活代码）。
-   margin-top:-100px 是固件把主表单拉到横幅之下的老做法，上游 shadowsocks.css 里也有；
-   重写时丢了它，表单会整体下移 100px。position:relative 是内部绝对定位子元素的参照。
-   （这条是扩了 margin-* 白名单之后才发现的，此前工具查不出来。） */
+/* --- 顶部页签栏必须压在主面板之上 ---
+   #tabMenu 是「Shadowsocks 设置 / Xray本地聚合」那一栏，在文档流里紧挨着 #FormTitle 之上。
+   #FormTitle 现在是不透明面板（背景 + 阴影），任何把它上提的边距都会把页签栏遮死。
+   这里给页签栏一个独立层，作为最后一道保险：即使某处又把主面板拉上来，
+   页签栏也画在它上面而不是被盖住。 */
+#tabMenu {
+	position: relative;
+	z-index: 2;
+}
+
+/* #FormTitle 的两个浏览器变体：ss-menu.js 从 5.3.0 起不再挂它们（统一用 .FormTitle）。
+   规则本身保留且把负边距归零，是为了兜住浏览器缓存 —— 用户手里可能还是旧的 ss-menu.js，
+   那份会按 UA 挂上 .FormTitle_chrome56，若这里仍是 -100px，页签栏照样被盖。
+   position:relative 保留：内部有绝对定位的子元素（返回按钮）拿它当参照。 */
 .FormTitle_chrome56,
 .FormTitle_firefox {
-	margin-top: -100px;
+	margin-top: 0;
 	position: relative;
 }
 
@@ -825,6 +848,17 @@ font[color="#A0A0A0"] { color: var(--ss-muted) !important; }
 .FormTable1 textarea {
 	box-sizing: border-box !important;
 	max-width: 100%;
+}
+
+/* 两个 V2Ray JSON 编辑器共享同一尺寸契约：默认显示约 12 行，内容在编辑器
+   内滚动；小视口再按视口高度收紧，不能把保存/应用按钮推出可达区域。 */
+#ss_node_table_v2ray_json,
+#ss_basic_v2ray_json {
+	height: 210px;
+	min-height: 140px;
+	max-height: 35vh;
+	overflow: auto;
+	resize: vertical;
 }
 
 /* 自定义 dnsmasq 与黑白名单是长列表编辑区，桌面保留适度的右侧留白。 */
@@ -860,7 +894,8 @@ font[color="#A0A0A0"] { color: var(--ss-muted) !important; }
 	box-sizing: border-box;
 	vertical-align: middle;
 	float: none !important;   /* 覆盖行内 float:left，回到基线对齐 */
-	width: 158px;
+	/* 宽度交给 .ss-acl-ip-control（160px），这里不再各说各话 */
+	width: 100%;
 }
 
 /* ======================================================================
@@ -1018,17 +1053,11 @@ font[color="#A0A0A0"] { color: var(--ss-muted) !important; }
 }
 .ss-hy2-v label[for] { cursor: pointer; }
 .ss-hy2-v .ss-hy2-gap { margin-left: 9px; }
-/* 全局设定这一列的下拉框：左右边缘都要成列（真机问题3 后半）。
-   上一版只把「同步UDP与TCP」和「DNS劫持」两个拉成同宽，但这两者在页面上隔着
-   一整行 select 和一个 rows=12 的 textarea，根本不会同屏 —— 等于修了个用户没提的位置。
-   而它们真正的上下邻居（国内DNS/国外DNS/节点域名解析DNS）既没有行内 width 也没有
-   行内 margin，于是那两个带 margin:0 0 0 2px 的反而比邻居右移，比不修更明显。
-   现在：行内 width/margin 已从 markup 移除，这里给同一列的 5 个框统一宽度。 */
+/* 全局设定中的主要下拉框统一宽度；DNS 劫持已改为复选框，不参与该尺寸规则。 */
 #tablet_2 #ss_dns_china,
-#tablet_2 #ss_basic_dns_hijack,
 #tablet_2 #ss_basic_server_resolver,
 #tablet_2 #ss_basic_udp_sync {
-	width: 300px;
+	width: 330px;
 	max-width: 100%;
 }
 #tablet_2 #ss_foreign_dns {
@@ -1053,13 +1082,13 @@ font[color="#A0A0A0"] { color: var(--ss-muted) !important; }
 	margin-top: 4px;
 }
 #tablet_6 #ss_basic_dnsmasq_fastlookup {
-	width: 370px;
+	width: 444px;
 	max-width: calc(100% - var(--sp-1));
 }
 /* hy2 块内的三个下拉框同理：行内 155/175/140px 三个值，右边缘参差。
    它们在 grid 的控件列里，统一宽度即可成列。 */
 #ss_basic_hy2_obfs_type,
-#ss_basic_hy2_congestion_type {
+#ss_basic_hy2_cc_mode {
 	width: 190px !important;
 }
 #ss_basic_hy2_bbr_profile { width: 150px !important; }
@@ -1077,46 +1106,70 @@ font[color="#A0A0A0"] { color: var(--ss-muted) !important; }
 	position: relative;
 	overflow: visible;
 }
+/* --- 主机IP地址：与同行「访问控制」「目标端口」统一成【单个控件】外观 ---
+   原来是「输入框 + 5px 间隙 + 一个独立的方形箭头钮」两件套，总宽 174px：
+   同一行里三个控件一个是双件套、两个是 select，宽度(174/160/100)和边框数量都对不上。
+   现在把箭头内嵌到输入框右端（就是 select 下拉箭头所在的位置），
+   外框宽度取 160px、左边距 2px —— 与 #ss_acl_mode 的行内样式完全一致。 */
 #ACL_table .ss-acl-ip-control {
-	display: flex;
-	align-items: center;
-	gap: 5px;
-	width: 174px;
+	position: relative;
+	display: inline-block;
+	width: 160px;
 	max-width: 100%;
+	margin: 0 0 0 2px;
+	vertical-align: middle;
 }
 #ACL_table #ss_acl_ip {
-	flex: 1 1 auto;
-	min-width: 0;
-	width: auto;
+	width: 100%;
+	/* 给内嵌箭头让位，否则满长的 255.255.255.255 会压到箭头底下 */
+	padding-right: 26px !important;
 }
 #ACL_table .ss-acl-ip-trigger {
-	display: block;
-	flex: 0 0 var(--ss-ctl-h);
-	width: var(--ss-ctl-h);
-	height: var(--ss-ctl-h);
+	position: absolute;
+	top: 1px;
+	right: 1px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: calc(var(--ss-ctl-h) - 2px);
 	padding: 0;
-	border: 1px solid var(--ss-hair);
-	border-radius: var(--r-sm);
-	background: var(--ss-ctl);
+	border: 0;
+	/* 只圆右侧两角，贴住输入框自身的圆角 */
+	border-radius: 0 var(--r-sm) var(--r-sm) 0;
+	background: transparent;
 	box-sizing: border-box;
 	cursor: pointer;
-	transition: background var(--ss-t), border-color var(--ss-t);
+	transition: background var(--ss-t);
 }
 #ACL_table .ss-acl-ip-trigger:hover,
-#ACL_table .ss-acl-ip-trigger:focus-within {
-	background: var(--ss-ctl-hi);
-	border-color: var(--ss-edge);
+#ACL_table .ss-acl-ip-trigger:focus-visible {
+	background: rgba(255, 255, 255, .06);
 	outline: none;
 }
-#ACL_table .ss-acl-ip-arrow {
+/* 箭头本体：纯 CSS 画的下三角，替换掉固件那张红色的 arrow-down.gif ——
+   它是亮红实心三角，在本主题的蓝灰控件里非常刺眼，而且和同行 select 的
+   原生下拉箭头（浏览器画的灰色小三角）完全不是一个语言。 */
+#ACL_table #pull_arrow::before {
+	content: "";
 	display: block;
-	width: 100%;
-	height: 100%;
-	padding: 7px;
-	box-sizing: border-box;
-	object-fit: contain;
-	filter: grayscale(1) brightness(1.7);
-	cursor: pointer;
+	width: 0;
+	height: 0;
+	border-left: 4px solid transparent;
+	border-right: 4px solid transparent;
+	border-top: 5px solid var(--ss-muted);
+	transition: transform var(--ss-t), border-top-color var(--ss-t);
+}
+#ACL_table #pull_arrow:hover::before {
+	border-top-color: var(--ss-ink-2);
+}
+/* 展开时翻转成上三角，与设备列表的开合状态对应 */
+#ACL_table #pull_arrow.is-open::before {
+	transform: rotate(180deg);
+}
+/* 里面那个 span 只是为了让 <button> 内容非空，不参与绘制 */
+#ACL_table .ss-acl-ip-arrow {
+	display: none;
 }
 #ACL_table #ClientList_Block {
 	position: absolute !important;
@@ -1132,7 +1185,6 @@ font[color="#A0A0A0"] { color: var(--ss-muted) !important; }
 @media (max-width: 600px) {
 	#tablet_5 { overflow-x: auto; }
 	#tablet_2 #ss_dns_china,
-	#tablet_2 #ss_basic_dns_hijack,
 	#tablet_2 #ss_basic_server_resolver,
 	#tablet_2 #ss_basic_udp_sync {
 		max-width: calc(100vw - 144px);

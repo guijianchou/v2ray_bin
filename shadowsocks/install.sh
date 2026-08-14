@@ -8,6 +8,32 @@ alias echo_date='echo 【$(TZ=UTC-8 date -R +%Y年%m月%d日\ %X)】:'
 mkdir -p /koolshare/ss
 mkdir -p /tmp/ss_backup
 
+# 5.2.x 的“全部”档会把 TCP/UDP 53 DNAT 直接写进 PREROUTING，规则没有 comment 或
+# 自有链名。旧版 stop 使用 while -D，会把第三方创建的完全同形规则一并删掉。
+# 只有同时满足“旧配置仍为全部档”且插件自有 DNSF hook 仍在时，才能证明旧版完整地
+# 下发过这组 DNAT；升级时每个网桥、每种协议只撤销一条，保留其余同形规则。
+legacy_dns_force_marker_present(){
+	[ "$ss_basic_enable" = "1" ] || return 1
+	[ "$ss_basic_dns_hijack" = "2" ] || return 1
+	iptables -t filter -S FORWARD 2>/dev/null | grep -Fq -- '-j SHADOWSOCKS_DNSF'
+}
+
+clean_owned_legacy_dns_force_dnat(){
+	[ "$LEGACY_DNS_FORCE_OWNED" = "1" ] || return 0
+	LEGACY_DNS_DNAT_REMOVED=0
+	for LEGACY_DNS_BR in $(ifconfig 2>/dev/null | grep -E "^br" | awk '{print $1}'); do
+		LEGACY_DNS_DST=$(ifconfig "$LEGACY_DNS_BR" 2>/dev/null | grep "inet addr" | awk '{print $2}' | awk -F: '{print $2}')
+		[ -n "$LEGACY_DNS_DST" ] || continue
+		if iptables -t nat -D PREROUTING -i "$LEGACY_DNS_BR" -p udp --dport 53 ! -d "$LEGACY_DNS_DST" -j DNAT --to-destination "$LEGACY_DNS_DST":53 >/dev/null 2>&1;then
+			LEGACY_DNS_DNAT_REMOVED=$((LEGACY_DNS_DNAT_REMOVED + 1))
+		fi
+		if iptables -t nat -D PREROUTING -i "$LEGACY_DNS_BR" -p tcp --dport 53 ! -d "$LEGACY_DNS_DST" -j DNAT --to-destination "$LEGACY_DNS_DST":53 >/dev/null 2>&1;then
+			LEGACY_DNS_DNAT_REMOVED=$((LEGACY_DNS_DNAT_REMOVED + 1))
+		fi
+	done
+	echo_date "已按旧版 DNSF 所有权证据撤销 $LEGACY_DNS_DNAT_REMOVED 条旧【全部】档 53/DNAT；同形第三方规则保持不动。"
+}
+
 # 判断路由架构和平台
 case $(uname -m) in
 	armv7l)
@@ -29,9 +55,16 @@ if [ "$firmware_comp" == "1" ];then
 	exit 1
 fi
 
-if [ "$ss_basic_enable" == "1" ];then
+LEGACY_DNS_FORCE_OWNED=0
+legacy_dns_force_marker_present && LEGACY_DNS_FORCE_OWNED=1
+if [ "$ss_basic_enable" == "1" ] && [ -f /koolshare/ss/ssconfig.sh ];then
 	echo_date 先关闭科学上网插件，保证文件更新成功!
-	sh /koolshare/ss/ssconfig.sh stop
+	# 必须使用待安装包内的新 stop：旧版 stop 的无界 DNS DNAT 清理无法区分第三方规则。
+	if ! (cd /tmp/shadowsocks/ss && sh ./ssconfig.sh stop);then
+		echo_date 待安装版本无法安全停止旧插件，安装中止，现有文件保持不变！
+		exit 1
+	fi
+	clean_owned_legacy_dns_force_dnat
 fi
 
 if [ -n "`ls /koolshare/ss/postscripts/P*.sh 2>/dev/null`" ];then
@@ -112,18 +145,29 @@ echo_date 创建一些二进制文件的软链接！
 echo_date 设置一些默认值
 [ -z "$ss_dns_china" ] && dbus set ss_dns_china=11
 [ -z "$ss_basic_ss_v2ray_plugin" ] && dbus set ss_basic_ss_v2ray_plugin=0
-# 这两个键的网页默认值写在 <option ... selected> 里，而后端读到空值时会落到"关闭"分支。
-# 不在这里补默认值的话，首装后界面显示"默认/关闭"、实际生效却是另一回事（DNS劫持尤其明显：
-# 界面写着"默认（劫持UDP/53）"，chromecast 却走 *) 分支打印"DNS劫持功能未开启"），
-# 而本脚本收尾会自动 restart 插件，用户在点过一次"提交"之前一直处于这个错位状态。
-[ -z "$ss_basic_dns_hijack" ] && dbus set ss_basic_dns_hijack=1
+# DNS 复选框在网页中默认勾选，UDP 档位的首项则是关闭；安装阶段补齐同样的后端默认值，
+# 避免用户第一次保存前出现“页面已勾选、实际未启用”的错位。
+case "$ss_basic_dns_hijack" in
+	0|1) ;;
+	*) dbus set ss_basic_dns_hijack=1 ;;
+esac
+dbus remove ss_runtime_dns_arbiter >/dev/null 2>&1
+dbus remove ss_runtime_dns_fallback >/dev/null 2>&1
 [ -z "$ss_basic_udp_sync" ] && dbus set ss_basic_udp_sync=0
-# Hysteria2 的透明UDP入站默认关：hy2 是QUIC协议、加解密开销远大于TCP类协议，
-# 把UDP也压到同一条隧道上，弱路由器更容易先撞CPU上限。要用请在界面上显式打开。
-[ -z "$ss_basic_hy2_udp" ] && dbus set ss_basic_hy2_udp=0
+# Hysteria2 的透明UDP入站已在 5.3.0 结构性下线（本固件内核 2.6.36.4 的 xt_TPROXY 不做
+# UDP established 接管，hysteria 的 udpTProxy 会退化成一包一会话，见 README）。
+# 界面开关与日志级别档位一并移除，这里清掉历史遗留键，避免旧值留在 dbus 里造成误解。
+dbus remove ss_basic_hy2_udp >/dev/null 2>&1
+dbus remove ss_basic_hy2_log_level >/dev/null 2>&1
+dbus remove ss_runtime_hy2_udp_unsupported >/dev/null 2>&1
+dbus remove ss_runtime_hy2_server_udp >/dev/null 2>&1
+rm -f /tmp/hysteria.log >/dev/null 2>&1
 # 旧版本生成器固定写入 true；升级后延续原行为，避免新增开关改变已验证配置。
 [ -z "$ss_basic_hy2_fast_open" ] && dbus set ss_basic_hy2_fast_open=1
 [ -z "$ss_basic_hy2_lazy" ] && dbus set ss_basic_hy2_lazy=1
+# BBR standard 会按官方默认省略 congestion/bandwidth，需要独立模式键才能与新的 Brutal 默认区分。
+# 旧的非空 JSON 由页面和生成器按 bandwidth/congestion 推断，不在安装阶段覆盖用户配置。
+[ -z "$ss_basic_hy2_cc_mode" ] && [ -z "$ss_basic_hy2_global_json" ] && dbus set ss_basic_hy2_cc_mode=brutal
 [ -z "$ss_acl_default_mode" ] && [ -n "$ss_basic_mode" ] && dbus set ss_acl_default_mode="$ss_basic_mode"
 [ -z "$ss_acl_default_mode" ] && [ -z "$ss_basic_mode" ] && dbus set ss_acl_default_mode=1
 [ -z "$ss_acl_default_port" ] && dbus set ss_acl_default_port=all

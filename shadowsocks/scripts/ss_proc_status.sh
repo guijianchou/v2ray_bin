@@ -328,50 +328,41 @@ check_status(){
 			echo
 		done
 	fi
-	# DNS劫持链路（原先这段完全不可见：nat PREROUTING 里能看到53改道，但最容易静默失效的
-	# DoT/DoH 拦截链与 ss_doh 集一个都没打出来，出问题时无从判断是没建、建了没命中、还是
-	# 被 REDIRECT/TPROXY 抢在 FORWARD 之前。）
+	# DNS劫持链路：当前只保留默认 UDP/53 模式。
 	echo ------------------------------------------------------ DNS劫持档位与链路 -------------------------------------------------------
-	echo "ss_basic_dns_hijack = [$ss_basic_dns_hijack]  (0=关闭 / 1=默认仅UDP53 / 2=全部强制+拦DoT/DoH)  <- 用户请求值"
+	echo "ss_basic_dns_hijack = [$ss_basic_dns_hijack]  (0=关闭 / 1=默认仅UDP53)  <- 用户请求值"
 	echo "ss_runtime_dns_state = [$(dbus get ss_runtime_dns_state)]  <- 实际生效值"
 	echo "ss_runtime_dns_text  = [$(dbus get ss_runtime_dns_text)]"
-	echo "  说明：state=fallback_default 表示选了【全部】但没能生效（53改道未写全，或本机dnsmasq未就绪），已退回【默认】档。"
 	echo "  dnsmasq 存活情况：pid=[$(pidof dnsmasq)]  UDP/53监听=[$(netstat -unl 2>/dev/null | grep -oE "[:.]53[[:space:]]" | head -n1)]"
 	echo "  dnsmasq-fastlookup 挂载=[$(mount | grep " on /usr/sbin/dnsmasq " | wc -l)]  (档位 ss_basic_dnsmasq_fastlookup=[$ss_basic_dnsmasq_fastlookup])"
 	echo "  fastlookup 实际状态 ss_runtime_dns_fastlookup = [$(dbus get ss_runtime_dns_fastlookup)]"
 	echo "    on=已挂载 / want_but_off=选了替换但没挂上(多为--test未通过，与当前dnsmasq配置不兼容) / off=未要求替换"
-	echo "  7913解析器仲裁能力 ss_runtime_dns_arbiter = [$(dbus get ss_runtime_dns_arbiter)]  (国外DNS方案 ss_foreign_dns=[$ss_foreign_dns])"
-	echo "    self=自带国内+隧道仲裁(chinadns1/ChinaDNS-NG) / tunnel_only=纯隧道无国内上游 / unknown=取决于用户配置(chinadns2/SmartDNS)"
-	echo "    tunnel_only 时隧道抖动会让非gfwlist/cdn域名解析超时，即【直连网页偶尔卡顿】的结构性成因"
-	echo "  DNS解析后备 ss_runtime_dns_fallback = [$(dbus get ss_runtime_dns_fallback)]"
-	echo "    on=已启用strict-order+国内DNS后备 / unsupported=当前dnsmasq不认strict-order故未启用 / off=非全部强制档"
-	echo "  /etc/dnsmasq.conf 的上游与顺序（strict-order 必须在 server= 之前才生效）："
-	grep -nE "^(strict-order|all-servers|no-resolv|server=)" /etc/dnsmasq.conf 2>/dev/null | sed 's/^/    /'
-	echo "  strict-order 能力探测（对即将运行的那个二进制）："
-	/usr/sbin/dnsmasq --test --strict-order -C /dev/null >/dev/null 2>&1 && echo "    支持" || echo "    不支持"
+	echo "  /etc/dnsmasq.conf 的上游："
+	grep -nE "^(all-servers|no-resolv|server=)" /etc/dnsmasq.conf 2>/dev/null | sed 's/^/    /'
 	echo "  fastlookup 与当前配置兼容性实测（--test）："
 	/koolshare/bin/dnsmasq --test -C /etc/dnsmasq.conf 2>&1 | sed 's/^/    /'
 	echo "    exit=$?  (非0=不兼容，mount_dnsmasq 会放弃替换)"
 	echo
-	echo "-- nat PREROUTING 中的 53 改道规则（档2直接DNAT，档1经SHADOWSOCKS_DNS_*链）--"
+	echo "-- nat PREROUTING 中经 SHADOWSOCKS_DNS_* 链的 UDP/53 改道规则 --"
 	iptables -t nat -S PREROUTING 2>/dev/null | grep -E "dport 53|SHADOWSOCKS_DNS_"
 	echo
-	if [ "$ss_basic_dns_hijack" == "2" ]; then
-		echo "-- filter表 SHADOWSOCKS_DNSF 链（DoT/DoH 拦截）--"
-		iptables -nvL SHADOWSOCKS_DNSF -t filter
-		echo
-		echo "-- 加密DNS放行规则（把853/DoH-443从代理里放出来，否则上面这条链永远不遍历）--"
-		iptables -t nat -S SHADOWSOCKS 2>/dev/null | grep -E "dport (853|443)"
-		iptables -t mangle -S SHADOWSOCKS 2>/dev/null | grep -E "dport (853|443)"
-		echo
-		echo "-- ss_doh 集合成员 --"
-		ipset -L ss_doh 2>/dev/null | grep -E "^[0-9]|Number of entries"
-		echo
-	fi
 	echo -----------------------------------------------------------------------------------------------------------------------------------
 	echo
 	# UDP代理运行时状态（与主界面状态栏第4行同源）
 	echo ------------------------------------------------------ UDP代理运行时状态 -------------------------------------------------------
+	# 【先重跑一次探针，再打印】—— 这是本页最容易骗人的地方，必须现场采样。
+	# 主界面状态栏靠 `*/5 * * * *` 的 cron 刷新 ss_runtime_udp_probe*，而本页原来只读那份缓存，
+	# 却又在同一页里现场执行 iptables -nvL 打实时计数。两者采样点相差最多 5 分钟，
+	# 于是真机上出现过：实时 Game 计数已经 114 包，同一页的 probe 却还停在 4 分半钟前的
+	# 「链路就绪，Game端口暂无UDP流量」。用户据此判断「HY2 的 Game 端口一个包都没走」——
+	# 而实际情况是包早就进了 TPROXY，真正的故障在更下游。一个纯粹的显示问题掩盖了真故障。
+	# 代价：正常路径只是一次 /proc/net/udp 读 + 几条 iptables -nvxL，几十毫秒；
+	# 只有 UDP/3333 确实没监听时才会走到 cru/udp.sh 里最多 3 秒的重试循环，
+	# 而那种情况本来就该等——它正在区分"核心还没绑上"和"核心根本没绑"。
+	if [ -f /koolshare/ss/cru/udp.sh ]; then
+		sh /koolshare/ss/cru/udp.sh >/dev/null 2>&1
+		echo "（以下 probe 为打开本页时【现场重新采样】的结果，不是状态栏那份5分钟缓存）"
+	fi
 	echo "档位(配置层) ss_runtime_udp_state = [$(dbus get ss_runtime_udp_state)]"
 	echo "             ss_runtime_udp_text  = [$(dbus get ss_runtime_udp_text)]"
 	echo "实测(运行层) ss_runtime_udp_probe = [$(dbus get ss_runtime_udp_probe)]  @$(dbus get ss_runtime_udp_probe_time)"
@@ -379,24 +370,27 @@ check_status(){
 	echo "  说明：probe 取值 —— off(未启用/档位关) / pass(仅代理QUIC，非443UDP不适用，跳过)"
 	echo "        ok(链路就绪无流量) / flow(有流量经代理)"
 	echo "        warn(Game端口未命中：可能填错，也可能该游戏用随机目的端口)"
-	echo "        unsupported(该节点/协议提供不了UDP加速，换节点或勾开关即可，【不是故障】)"
+	echo "        unsupported(该节点/协议提供不了UDP加速，换节点即可，【不是故障】)"
 	echo "        fail(该生效却没立起来，或内核/环境故障 —— 这才是真红灯)"
-	# hy2 构建能力的【持久化】结论。这是唯一能看出「开机路径为什么不下发UDP规则」的地方 ——
-	# 它不是本次运行算出来的，而是上一次 start_hy2 自愈时落库的，之后每次开机都沿用。
-	HY2U=$(dbus get ss_runtime_hy2_udp_unsupported)
-	echo "-- Hysteria2 透明UDP入站(udpTProxy) 构建能力 --"
-	if [ "$HY2U" == "1" ]; then
-		echo "  ss_runtime_hy2_udp_unsupported = [1] —— 已判定【这份 hysteria 构建不接受 udpTProxy】"
-		echo "  该结论由上一次 start_hy2 的自愈流程落库，开机路径直接沿用、不再重试（省掉约9秒等待）。"
-		echo "  影响：即使勾了 UDP 开关、档位选了2/3，本节点的 UDP 也不会下发透明代理规则（这是对的，"
-		echo "        否则规则会指向一个不监听 UDP/3333 的核心，Game端口UDP整段黑洞）。"
-		echo "  要重新探测：换一个编入TPROXY支持的构建后，在网页上【手动点一次应用】即会清掉该结论重试。"
-	elif [ -n "$ss_basic_hy2_udp" ] && [ "$ss_basic_hy2_udp" == "1" ]; then
-		echo "  ss_runtime_hy2_udp_unsupported = [空] —— 未判定为不支持，UDP开关已开启，按支持处理。"
-	else
-		echo "  ss_runtime_hy2_udp_unsupported = [${HY2U:-空}]（当前节点非hy2、或未开启hy2的UDP开关）"
-	fi
+	echo "  上一次采样的Game计数 ss_runtime_udp_probe_game_prev = [$(dbus get ss_runtime_udp_probe_game_prev)]"
+	echo "  上一次Game计数采样时间 ss_runtime_udp_probe_game_prev_t = [$(dbus get ss_runtime_udp_probe_game_prev_t)]"
+	echo "    probe 判 flow/ok 看的是【两次采样之间的增量】而不是累计值：累计值是自建链以来的，"
+	echo "    一旦大于0就永久粘住，流量停了也永远显示【有流量】。停滞流与活跃流必须区分得开。"
+
 	echo
+	# Hysteria2 的透明UDP自 5.3.0 起结构性下线，这里明说原因，免得又去查"是不是开关没开"。
+	if [ "$ss_basic_type" == "4" ] && [ "$ss_basic_trojan_binary" == "Hysteria2" ]; then
+		echo "-- Hysteria2 透明UDP（已下线，非故障）--"
+		echo "  hysteria 的 udpTProxy 只把每个 (src,dst) 的首包交给通配监听器，随后建一个 connected"
+		echo "  IP_TRANSPARENT socket，指望内核把该四元组的后续包直接投递给它。这个接管靠 xt_TPROXY"
+		echo "  的两段查找（先 established 后 listener），而 UDP 的 established 那段是 2.6.37 才进主线的，"
+		echo "  本固件内核是 2.6.36.4，没有。于是每个包都落回通配监听器、每包新建一次会话："
+		echo "  服务端按 SessionID 分配出站 socket，游戏服务器看到的源端口每包都在变，会话建不起来。"
+		echo "  实测：同一 (src,dst) 对 11 秒内 22 次 newPair，各自 20 秒后超时关闭。"
+		echo "  Xray 不受影响——它的 dokodemo-door 在用户态自己做 (src,dst) 分流，不依赖内核接管。"
+		echo "  要 UDP/游戏加速请改用 Xray 系节点（VLESS/VMess/Trojan）。"
+		echo
+	fi
 	echo "-- ip rule / table 310 --"
 	ip rule show 2>/dev/null | grep -E "310|fwmark"
 	ip route show table 310 2>/dev/null

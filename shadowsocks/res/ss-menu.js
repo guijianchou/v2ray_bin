@@ -64,44 +64,44 @@ var autoTextarea = function(elem, extra, maxHeight) {
 	change();
 };
 
+// 顶部页签栏（#tabMenu）被主面板盖住的问题就出在这个函数上，所以它现在只做一件事：
+// 把 #FormTitle 归一到普通的 .FormTitle，并清掉任何历史遗留的行内偏移。
+//
+// 【原来是什么样】按 UA 分三路：
+//   Chrome>=56 且固件<7.5  -> className = "FormTitle_chrome56"
+//   Firefox     且固件<7.5  -> className = "FormTitle_firefox" + 行内 marginTop="-100px"
+//   Firefox     且固件>=7.5 -> className = "FormTitle_firefox" + marginTop="0" + height="975px"
+// 而样式表里 .FormTitle_chrome56/.FormTitle_firefox 带着 margin-top:-100px。
+//
+// 【为什么会盖住】页面骨架是
+//     <div id="tabMenu" class="submenuBlock"></div>   <- 页签栏，正常参与文档流
+//     <table id="FormTitle">                          <- 主面板，紧跟其后
+// 主面板被上提 100px 就直接压在页签栏上；而本主题给 #FormTitle 上了不透明底色
+// （background: var(--ss-panel)）和 box-shadow，于是页签栏被完全遮死 —— 上游那套
+// 半透明配色下还能透出来，换成实心面板后就彻底看不见了。
+//
+// iOS Safari 之所以正常：它的 UA 里没有 "Chrome"（Chrome for iOS 是 "CriOS"），
+// 三条分支一条都不命中，#FormTitle 保持 HTML 里写死的 class="FormTitle"，没有负边距。
+// 也就是说 Safari 那份【就是正确布局】—— 所以这里让所有浏览器都走 Safari 那条路。
+//
+// 顺带去掉 Firefox 那句 height="975px"：#FormTitle 现在有 overflow:hidden（给圆角裁切用），
+// 固定高度会把超出的内容直接裁掉，而这几个页面的高度随标签页变化很大。
 function browser_compatibility1(){
-	//fw versiom
-	var _fw = "<% nvram_get("extendno"); %>";
-	fw_version=parseFloat(_fw.split("X")[1]);
-	// chrome
-	var isChrome = navigator.userAgent.search("Chrome") > -1;
-	if(isChrome){
-		var major = navigator.userAgent.match("Chrome\/([0-9]*)\.");    //check for major version
-		var isChrome56 = (parseInt(major[1], 10) >= 56);
-	} else {
-		var isChrome56 = false;
-	}
-	if((isChrome56) && document.getElementById("FormTitle") && fw_version < 7.5){
-		document.getElementById("FormTitle").className = "FormTitle_chrome56";
-	}else if((isChrome56) && document.getElementById("FormTitle") && fw_version >= 7.5){
-		document.getElementById("FormTitle").className = "FormTitle";
-	}
-	//firefox
-	var isFirefox = navigator.userAgent.search("Firefox") > -1;
-	if((isFirefox) && document.getElementById("FormTitle") && fw_version < 7.5){
-		document.getElementById("FormTitle").className = "FormTitle_firefox";
-		if(current_url.indexOf("Main_Ss") == 0){
-			document.getElementById("FormTitle").style.marginTop = "-100px"
-		}
-
-	}else if((isFirefox) && document.getElementById("FormTitle") && fw_version >= 7.5){
-		document.getElementById("FormTitle").className = "FormTitle_firefox";
-		if(current_url.indexOf("Main_Ss") == 0){
-			document.getElementById("FormTitle").style.marginTop = "0px"	
-			E("FormTitle").style.height = "975px";
-		}
-	}
+	var ft = document.getElementById("FormTitle");
+	if (!ft) return;
+	ft.className = "FormTitle";
+	ft.style.marginTop = "";
+	ft.style.height = "";
 }
 
 function menu_hook() {
 	browser_compatibility1();
-	tabtitle[tabtitle.length - 1] = new Array("", "Shadowsocks 设置", "负载均衡设置", "Xray本地聚合", "Socks5设置", "__INHERIT__");
-	tablink[tablink.length - 1] = new Array("", "Main_Ss_Content.asp", "Main_Ss_LoadBlance.asp", "Main_SsXray_Aggregate.asp", "Main_SsLocal_Content.asp");
+	// 只保留两个入口：主设置与 Xray 本地聚合。
+	// 「负载均衡设置」(Main_Ss_LoadBlance.asp) 与「Socks5设置」(Main_SsLocal_Content.asp)
+	// 的功能已经过时，从导航里摘掉；两个 asp 与其后端代码都保留在包里不动，
+	// 直接输入地址仍可访问，只是不再从页签暴露。
+	tabtitle[tabtitle.length - 1] = new Array("", "Shadowsocks 设置", "Xray本地聚合");
+	tablink[tablink.length - 1] = new Array("", "Main_Ss_Content.asp", "Main_SsXray_Aggregate.asp");
 }
 
 function done_validating(action) {
@@ -638,6 +638,7 @@ function openssHint(itemNum) {
 		statusmenu += "</br></br><b>仅代理 QUIC+Game：</b>在仅代理 QUIC 的基础上，把 Game Port 输入框指定的 UDP 端口一并按 chnroute 分流（境外游戏服走代理，国内直连）。端口格式：单端口或端口段（低-高），逗号隔开，如 27015,7777-7778（方舟生存飞升 ASA）；保存与加载前均做语法检查，非法则不下发规则；留空时行为与仅代理 QUIC 完全一致。443 无需填入（QUIC 档已默认覆盖，重复填入亦无碍，仅多一次无害的规则匹配）。"
 		statusmenu += "</br></br><b>全量 UDP：</b>所有 UDP 都按 chnroute 分流走代理。分流最彻底，但逐包处理 + 用户态转发，路由器 CPU 负载最高，BT/P2P 场景尤其明显。"
 		statusmenu += "</br></br>提示：ACL 中存在游戏模式主机、或主模式为游戏模式时，为保证游戏 UDP，会自动按全量 UDP 处理。"
+		statusmenu += "</br></br><font color='#CC0066'>注意：Hysteria2 节点下本选项被锁定为【关闭】并置灰。</font>原因是本固件内核不提供 UDP 的 TPROXY established 接管，hysteria 的透明 UDP 在此内核上会退化成一包一会话，游戏无法建立连接（详见【Hysteria2设定】的说明）。TCP 代理不受影响；需要 UDP 时请改用 Xray 系节点。"
 		_caption = "同步UDP与TCP";
 		return overlib(statusmenu, OFFSETX, -560, OFFSETY, -90, LEFT, STICKY, WIDTH, 'width', CAPTION, _caption, CLOSETITLE, '');
 	}  else if (itemNum == 117) {
@@ -649,14 +650,13 @@ function openssHint(itemNum) {
 		return overlib(statusmenu, OFFSETX, -560, OFFSETY, -90, LEFT, STICKY, WIDTH, 'width', CAPTION, _caption, CLOSETITLE, '');
 	}  else if (itemNum == 118) {
 		width = "750px";
-		statusmenu = "<b>Hysteria2设定默认不填。</b>"
-		statusmenu += "</br></br>所有项目都留空时，不会生成全局 JSON，也不会覆盖节点配置。"
+		statusmenu = "<b>Hysteria2 默认使用 Brutal。</b>"
+		statusmenu += "</br></br>初始上行 100 Mbps、下行 200 Mbps 会真实写入 bandwidth；这两个值来自官方配置示例，不是测速结果，请按线路的实际可用带宽修改。Brutal 还要求服务端没有启用 ignoreClientBandwidth。"
 		statusmenu += "</br></br><font color='#CC0066'><b>混淆：</b></font>支持 salamander/gecko，启用后必须填写和服务端一致的密码；gecko 可选最小/最大包大小，要求 Hysteria v2.9.2+。"
-		statusmenu += "</br></br><font color='#CC0066'><b>拥塞控制：</b></font>默认使用 bbr + standard，也可以选择 bbr/reno；bbr 可选 standard、conservative、aggressive，要求 Hysteria v2.8.1+。"
-		statusmenu += "</br></br><font color='#CC0066'><b>带宽：</b></font>填写上行/下行 mbps 后，对应方向会使用 Brutal 速率控制；未填写的方向继续使用拥塞控制。"
-		statusmenu += "</br></br><b>UDP 开关（udpTProxy）</b>：打开后 hy2 节点才会声明透明 UDP 入站，「同步UDP与TCP」才能在该节点上生效；关闭时只做 TCP 透明代理。默认关闭是出于路由器负载考虑。"
+		statusmenu += "</br></br><font color='#CC0066'><b>拥塞控制：</b></font>Brutal 通过 bandwidth 启用，不会生成不存在的 congestion.type=brutal；BBR standard 省略 congestion，BBR conservative/aggressive 与 Reno 要求 Hysteria v2.8.1+。"
+		statusmenu += "</br></br><font color='#CC0066'><b>Brutal 带宽：</b></font>至少填写一个方向；留空方向由核心回退到 BBR。格式固定为正整数 Mbps。"
 		statusmenu += "</br></br><b>fastOpen / lazy：</b>控制 Hysteria 官方客户端的快速打开与延迟连接参数；为保持旧版本行为，两项默认打开。"
-		statusmenu += "</br></br>若当前构建未编入 TPROXY 支持，插件会自动移除 udpTProxy 重试并回退纯 TCP，TCP 代理不受影响。"
+		statusmenu += "</br></br><font color='#CC0066'><b>关于 UDP：</b></font>本固件内核（2.6.36.4）的 xt_TPROXY 不做 UDP 的 established 接管（该特性 2.6.37 才引入），而 hysteria 的 udpTProxy 恰好依赖它 —— 每个包都会被当成一条新会话，服务端每包换一个出站源端口，游戏永远连不上。因此 5.3.0 起 Hysteria2 一律只做 TCP 透明代理，UDP 开关与日志级别档位已移除，「同步UDP与TCP」在 hy2 节点下锁定为关闭。<b>TCP 代理不受任何影响</b>；要用 UDP／游戏加速请改用 Xray 系节点（VLESS／VMess／Trojan），它在用户态自己做分流，不依赖内核接管。"
 		statusmenu += "</br></br>参考：<a href='https://v2.hysteria.network/docs/advanced/Full-Client-Config/' target='_blank'><u><font color='#00F'>Hysteria2 官方客户端配置文档</font></u></a>"
 		_caption = "Hysteria2设定";
 		return overlib(statusmenu, OFFSETX, -560, OFFSETY, -90, LEFT, STICKY, WIDTH, 'width', CAPTION, _caption, CLOSETITLE, '');
@@ -780,7 +780,7 @@ function openssHint(itemNum) {
 		_caption = "说明：";
 	} else if (itemNum == 106) {
 		width = "600px";
-		statusmenu = "DNS劫持（原chromecast功能）.<br />&nbsp;&nbsp;&nbsp;&nbsp;把局域网客户端的DNS解析强制交给路由器dnsmasq，避免DNS污染；同时也是“黑白名单/大陆白名单”可靠生效的前提——白名单域名靠dnsmasq解析时把IP写入白名单集合，客户端若绕过dnsmasq，白名单域名的真实IP就不会被放行而仍走代理。<br />&nbsp;&nbsp;&nbsp;&nbsp;<b>两个档位（原“关闭”档已移除：不劫持会让黑白名单里的域名条目直接失效）：</b><br />&nbsp;&nbsp;&nbsp;&nbsp;<b>默认（原chromecast）</b>：只把明文 UDP/53 劫持到路由器DNS。对付设备手动设8.8.8.8等明文DNS足够，但挡不住浏览器/系统的DoH/DoT。<br />&nbsp;&nbsp;&nbsp;&nbsp;<b>全部（推荐用于大陆白名单）</b>：在“默认”基础上再劫持 TCP/53，并拦截 DoT(853) 与常见 DoH 解析器IP的443，逼客户端回退明文DNS→被路由器接管。这样白名单域名（含Cloudflare/CDN站）连接的真实IP才能可靠进入白名单直连，解决“加了白名单仍走代理/CF盾显示代理出口IP”。代价：会接管设备上自设的私有DNS/DoH。<br />&nbsp;&nbsp;&nbsp;&nbsp;<b>出错回退</b>：53改道规则未能完整写入（UDP+TCP 的 AND 判据），或本机dnsmasq未就绪时，自动回退“默认”档，并在主界面状态栏显示“已回退”及原因。dnsmasq未就绪时会先尝试卸掉dnsmasq-fastlookup回退原版再重试。<br />&nbsp;&nbsp;&nbsp;&nbsp;<b>解析后备</b>：本档下dnsmasq的默认上游会加一条国内DNS作fallback（strict-order语义：仅当经隧道的国外解析器不响应时才启用，不是并发竞速，所以不会让国外域名拿到被污染的国内应答）。不加的话，凡是既不在gfwlist也不在cdn列表里的域名，解析都要经隧道出国一趟且没有任何退路，隧道抖动时表现为“流量本身直连的网页偶尔卡住、等一会儿才刷出来”。"
+		statusmenu = "DNS劫持（原chromecast功能）.<br />&nbsp;&nbsp;&nbsp;&nbsp;勾选后，把局域网客户端发往任意地址的明文 UDP/53 请求改道到路由器 dnsmasq，避免客户端手动指定公共 DNS 绕过本机解析与域名分流。<br />&nbsp;&nbsp;&nbsp;&nbsp;该默认模式不接管 TCP/53，也不拦截浏览器或系统使用的 DoH、DoT、DoQ。取消勾选后不下发 DNS 劫持规则。"
 		_caption = "说明：";
 	} else if (itemNum == 107) {
 		width = "600px";

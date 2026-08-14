@@ -925,12 +925,73 @@ hy2_webtest_validate_global_json(){
 	return 0
 }
 
+hy2_webtest_normalize_cc_json(){
+	local config_file="$1"
+	local output_file="$2"
+	local cc_mode="$3"
+	case "$cc_mode" in
+		brutal)
+			if jq -e 'has("bandwidth")' "$config_file" >/dev/null 2>&1; then
+				return 0
+			fi
+			jq '. + {bandwidth: {up: "100 mbps", down: "200 mbps"}}' "$config_file" >"$output_file"
+			;;
+		bbr)
+			jq '
+				del(.bandwidth) |
+				if (.congestion.type == "bbr" and
+					(.congestion.bbrProfile == "conservative" or .congestion.bbrProfile == "aggressive"))
+				then . else del(.congestion) end
+			' "$config_file" >"$output_file"
+			;;
+		reno)
+			jq 'del(.bandwidth) | .congestion = {type: "reno"}' "$config_file" >"$output_file"
+			;;
+		*)
+			return 1
+			;;
+	esac || {
+		rm -f "$output_file"
+		return 1
+	}
+	if ! mv "$output_file" "$config_file"; then
+		rm -f "$output_file"
+		return 1
+	fi
+	return 0
+}
+
+hy2_webtest_validate_cc_mode_json(){
+	local config_file="$1"
+	local cc_mode="$2"
+	case "$cc_mode" in
+		brutal)
+			jq -e 'has("bandwidth")' "$config_file" >/dev/null 2>&1
+			;;
+		bbr)
+			jq -e '
+				(has("bandwidth") | not) and
+				((has("congestion") | not) or .congestion.type == "bbr")
+			' "$config_file" >/dev/null 2>&1
+			;;
+		reno)
+			jq -e '
+				(has("bandwidth") | not) and .congestion.type == "reno"
+			' "$config_file" >/dev/null 2>&1
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
 create_hy2_json(){
 	local hy2_fast_open="$(dbus get ss_basic_hy2_fast_open)"
 	local hy2_lazy="$(dbus get ss_basic_hy2_lazy)"
 	local hy2_insecure="$(eval echo \$ssconf_basic_allowinsecure_$nu)"
 	local hy2_global_json="$(dbus get ss_basic_hy2_global_json)"
-	rm -f /tmp/tmp_hysteria.json /tmp/tmp_hysteria.base.json /tmp/tmp_hysteria_global.json /tmp/tmp_hysteria.final.json
+	local hy2_cc_mode="$(dbus get ss_basic_hy2_cc_mode)"
+	rm -f /tmp/tmp_hysteria.json /tmp/tmp_hysteria.base.json /tmp/tmp_hysteria_global.json /tmp/tmp_hysteria.final.json /tmp/tmp_hysteria.default.json
 	[ -n "$hy2_fast_open" ] || hy2_fast_open=1
 	[ -n "$hy2_lazy" ] || hy2_lazy=1
 	[ -n "$hy2_insecure" ] || hy2_insecure=0
@@ -971,12 +1032,40 @@ create_hy2_json(){
 	if [ -n "$hy2_global_json" ]; then
 		printf '%s' "$hy2_global_json" | base64_decode > /tmp/tmp_hysteria_global.json
 		hy2_webtest_validate_global_json /tmp/tmp_hysteria_global.json || return 1
+		if [ -z "$hy2_cc_mode" ]; then
+			if jq -e 'has("bandwidth")' /tmp/tmp_hysteria_global.json >/dev/null 2>&1; then
+				hy2_cc_mode="brutal"
+			else
+				hy2_cc_mode=`jq -r 'if .congestion.type == "bbr" then "bbr" elif .congestion.type == "reno" then "reno" else "bbr" end' /tmp/tmp_hysteria_global.json 2>/dev/null`
+			fi
+		fi
 		jq -s '.[0] * .[1]' /tmp/tmp_hysteria.base.json /tmp/tmp_hysteria_global.json > /tmp/tmp_hysteria.final.json || return 1
 	else
 		if ! mv /tmp/tmp_hysteria.base.json /tmp/tmp_hysteria.final.json; then
 			echo_date "webtest: Hysteria2 基础配置临时文件写入失败。"
 			return 1
 		fi
+	fi
+	[ -n "$hy2_cc_mode" ] || hy2_cc_mode="brutal"
+	case "$hy2_cc_mode" in
+		brutal|bbr|reno) ;;
+		*) echo_date "webtest: Hysteria2 拥塞控制模式不合法。"; return 1 ;;
+	esac
+	if ! hy2_webtest_normalize_cc_json /tmp/tmp_hysteria.final.json /tmp/tmp_hysteria.default.json "$hy2_cc_mode"; then
+		echo_date "webtest: Hysteria2 拥塞控制配置归一失败。"
+		return 1
+	fi
+	if ! hy2_webtest_validate_cc_mode_json /tmp/tmp_hysteria.final.json "$hy2_cc_mode"; then
+		echo_date "webtest: Hysteria2 拥塞控制配置与所选模式不一致。"
+		return 1
+	fi
+	if ! jq 'del(.server, .auth, .tls, .fastOpen, .lazy, .socks5)' /tmp/tmp_hysteria.final.json > /tmp/tmp_hysteria_global.json; then
+		echo_date "webtest: Hysteria2 最终设定提取失败。"
+		return 1
+	fi
+	if jq -e 'length > 0' /tmp/tmp_hysteria_global.json >/dev/null 2>&1 && ! hy2_webtest_validate_global_json /tmp/tmp_hysteria_global.json; then
+		echo_date "webtest: Hysteria2 最终设定校验失败。"
+		return 1
 	fi
 	if ! jq -e '
 		type == "object" and
@@ -993,7 +1082,7 @@ create_hy2_json(){
 		echo_date "webtest: Hysteria2 最终配置写入失败。"
 		return 1
 	fi
-	rm -f /tmp/tmp_hysteria.base.json /tmp/tmp_hysteria_global.json
+	rm -f /tmp/tmp_hysteria.base.json /tmp/tmp_hysteria_global.json /tmp/tmp_hysteria.default.json
 	return 0
 }
 

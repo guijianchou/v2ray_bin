@@ -17,7 +17,7 @@
 #   ok    链路就绪，尚无流量            —— 绿
 #   flow  链路就绪，且已有流量经过      —— 绿
 #   warn  链路好但配置多半有问题（Game端口未命中）—— 黄
-#   unsupported 当前节点/协议提供不了UDP加速（换节点或勾开关即可）—— 黄
+#   unsupported 当前节点/协议提供不了UDP加速（换节点即可）—— 黄
 #   fail  该生效却没立起来 / 环境故障      —— 红
 
 source /koolshare/scripts/base.sh
@@ -50,9 +50,9 @@ case "$STATE" in
 		;;
 	degraded_node|degraded_plugin)
 		# 【能力不支持，不是故障】——这两类的共同点是：链路没坏，是这个节点/协议
-		# 本来就提供不了 UDP 加速（hy2开关没开、hy2构建不认udpTProxy、
+		# 本来就提供不了 UDP 加速（Hysteria2 受本固件内核限制已下线透明UDP、
 		# naive/anytls 没配透明UDP入站、SIP003 simple-obfs 没有UDP通路）。
-		# 用户换个节点或勾个开关就能解决，标红会让人以为插件坏了，所以给 unsupported。
+		# 用户换个节点就能解决，标红会让人以为插件坏了，所以给 unsupported。
 		# 注意 degraded_plugin 早先整个漏在这个 case 之外，会掉进下面的链路完整性检查，
 		# 拿到"代理核心未监听UDP/3333"这个归因完全错误的结论。
 		PROBE="unsupported"; PTEXT="${STATE_TEXT:-当前节点/协议不提供UDP加速}"; write_out
@@ -166,7 +166,7 @@ sum_pkts(){
 TP_PKTS=$(iptables -t mangle -nvxL 2>/dev/null | grep "TPROXY" | sum_pkts)
 
 GAME_PKTS=""
-if [ "$STATE" == "quic_game" ]; then
+if [ "$STATE" = "quic_game" ]; then
 	GAME_PKTS=$(iptables -t mangle -nvxL PREROUTING 2>/dev/null | grep "multiport" | grep "SHADOWSOCKS" | sum_pkts)
 fi
 
@@ -191,9 +191,70 @@ if iptables -t filter -nvL SHADOWSOCKS_FWD >/dev/null 2>&1; then
 		| awk '$3=="RETURN" && $4=="all" && NF<=9 {print $1}' | sum_pkts)
 fi
 
-if [ "$STATE" == "quic_game" ]; then
+# ---- 累计值 vs 增量：这两个必须分清，否则"有流量"是个永远不会熄的灯 ----
+#
+# GAME_PKTS / TP_PKTS 都是【自 iptables 规则建链以来】的累计值，只有重新 apply
+# （删链重建）才会归零。所以一旦大于 0 就永久粘住：游戏关了、隧道断了、UDP 全程
+# 被服务端拒掉，状态栏照样显示"Game端口UDP已有流量经代理"。
+#
+# 真机上这正好掩盖了一次真故障：HY2 跑了 4 分钟只有 114 个包（0.42 包/秒），
+# 而同一条链路 VLESS 是 3281 包（12 包/秒）—— 差 29 倍，形态是"发出去没人回、
+# 游戏在退避重试"。但两者在旧判据下都只是 ">0"，都报 flow，看不出任何差别。
+#
+# 所以判活跃看增量，判"配错了"才看累计。
+NOW_T=`date +%s 2>/dev/null`
+PREV_P=`dbus get ss_runtime_udp_probe_game_prev 2>/dev/null`
+PREV_T=`dbus get ss_runtime_udp_probe_game_prev_t 2>/dev/null`
+[ -n "$PREV_P" ] || PREV_P=0
+[ -n "$PREV_T" ] || PREV_T=0
+[ -n "$NOW_T" ] || NOW_T=0
+ELAPSED=$((NOW_T - PREV_T))
+[ "$ELAPSED" -lt 0 ] && ELAPSED=0
+
+# 采样间隔太短时不更新基线。原因：本脚本除了 */5 的 cron，还会被
+# write_udp_runtime_state（apply 收尾）和 ss_proc_status.sh（每次打开详细状态页）
+# 同步调用。用户连点两次详细状态，两次采样只差几秒，增量必然是 0 ——
+# 那时把基线更新掉，就等于在游戏正跑着的时候把 flow 判成"流量已停"。
+SAMPLE_MIN=60
+if [ "$STATE" = "quic_game" ] && [ "$ELAPSED" -ge "$SAMPLE_MIN" ]; then
+	dbus set ss_runtime_udp_probe_game_prev="$GAME_PKTS" >/dev/null 2>&1
+	dbus set ss_runtime_udp_probe_game_prev_t="$NOW_T" >/dev/null 2>&1
+fi
+
+GAME_DELTA=0
+[ -n "$GAME_PKTS" ] && GAME_DELTA=$((GAME_PKTS - PREV_P))
+# 负增量只有一个成因：iptables 规则被删链重建了（apply / 开机 / 换节点），
+# 计数从 0 重新开始，而基线还停在重建前的高值。此时全部现存包都是新的，
+# 不能当成"零新增"报成停滞——那正好会在用户刚点完应用、游戏正常跑起来的时候误报。
+if [ "$GAME_DELTA" -lt 0 ]; then
+	GAME_DELTA=$GAME_PKTS
+	dbus set ss_runtime_udp_probe_game_prev="$GAME_PKTS" >/dev/null 2>&1
+	dbus set ss_runtime_udp_probe_game_prev_t="$NOW_T" >/dev/null 2>&1
+fi
+
+if [ "$STATE" = "quic_game" ]; then
 	if [ -n "$GAME_PKTS" ] && [ "$GAME_PKTS" -gt 0 ]; then
-		PROBE="flow"; PTEXT="Game端口UDP已有流量经代理（${GAME_PKTS}包），QUIC/443不计入本项"
+		# 【"经代理"这个词只有 TPROXY 也命中时才敢说】
+		# Game hook 命中只证明"目的端口对上了、包进了 mangle/SHADOWSOCKS"，
+		# 之后还要过 white_list / chnroute / ACL 三道分流才轮得到 TPROXY。
+		# 白名单目标或国内目标会在模式链里 RETURN 掉，那是【入口命中但按设计直连】，
+		# 旧文案一律报"已有流量经代理"，比实际测到的强。
+		if [ "$TP_PKTS" -le 0 ]; then
+			PROBE="warn"
+			PTEXT="Game端口已命中${GAME_PKTS}包，但模式链里的TPROXY一个都没命中——说明这些包按分流规则走了直连（目标在白名单里，或在大陆白名单模式下命中了chnroute国内段）。检查该游戏服务器的IP归属，或把它加进【黑白名单→黑名单】强制走代理"
+		elif [ "$GAME_DELTA" -gt 0 ]; then
+			PROBE="flow"
+			PTEXT="Game端口UDP正在经代理转发（累计${GAME_PKTS}包，最近${ELAPSED}秒新增${GAME_DELTA}包），QUIC/443不计入本项"
+		elif [ "$ELAPSED" -lt "$SAMPLE_MIN" ]; then
+			# 距上次采样太近，增量不足以说明问题，只报累计值，不下"停了"的结论
+			PROBE="flow"
+			PTEXT="Game端口UDP累计${GAME_PKTS}包已经过代理（距上次采样仅${ELAPSED}秒，间隔太短，不足以判断此刻是否仍在活跃），QUIC/443不计入本项"
+		else
+			# 累计 >0 但一个采样周期内零新增：流量停了。可能只是游戏关了（正常），
+			# 也可能是"包发得出去、回不来"——后者正是服务端不给UDP或外层QUIC不通的形态。
+			PROBE="ok"
+			PTEXT="Game端口UDP累计${GAME_PKTS}包，但最近${ELAPSED}秒零新增：游戏已退出则属正常；若游戏正在运行，说明UDP只出不回（检查代理节点服务端UDP能力与隧道连通性）"
+		fi
 	elif [ -n "$FWD_TAIL" ] && [ "$FWD_TAIL" -gt 200 ]; then
 		# Game 端口没命中，却有可观的境外非443 UDP 被兜底放行。
 		# 两种成因，措辞上都要覆盖，不能只说"填错"：

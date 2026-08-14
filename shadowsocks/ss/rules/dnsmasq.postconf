@@ -65,8 +65,7 @@ perpare(){
 	#   - 选 oneDNS 的用户，界面显示 117.50.11.11，实际写进 dnsmasq.conf 的是一个
 	#     早已不提供服务的旧地址（同一项目 ssconfig.sh 的白名单里用的还是新地址，自相矛盾）；
 	#   - 选 SmartDNS 的用户在 gfwlist/回国模式下，CDN 为空 → use_chn_plan 写出
-	#     `server=#53` 这条非法指令 → dnsmasq 起不来。若此时 DNS劫持=全部，
-	#     UDP/53 与 TCP/53 都已改道到这个起不来的 dnsmasq，就是全网 DNS 全断。
+	#     `server=#53` 这条非法指令 → dnsmasq 起不来；默认 UDP/53 劫持也会随之失去上游。
 	# 改这张表时【务必同步改 ssconfig.sh 里的那份】。
 	[ "$ss_dns_china" == "2" ] && CDN="223.5.5.5"
 	[ "$ss_dns_china" == "3" ] && CDN="223.6.6.6"
@@ -92,7 +91,7 @@ perpare(){
 	[ -n "`cat /etc/dnsmasq.conf|grep no-resolv`" ] && sed -i '/no-resolv/d' /etc/dnsmasq.conf
 	[ -n "`cat /etc/dnsmasq.conf|grep servers-file`" ] && sed -i '/servers-file/d' /etc/dnsmasq.conf
 	[ -n "`cat /etc/dnsmasq.conf|grep resolv-file`" ] && sed -i '/resolv-file/d' /etc/dnsmasq.conf
-	# strict-order 只在「DNS劫持=全部」时该出现，档位切回去必须清掉，否则残留会改变解析行为
+	# 升级清理：旧“全部”档可能留下 strict-order，当前单上游配置不再需要它。
 	[ -n "`cat /etc/dnsmasq.conf|grep strict-order`" ] && sed -i '/strict-order/d' /etc/dnsmasq.conf
 }
 
@@ -126,85 +125,7 @@ use_for_plan(){
 		pc_insert "no-poll" "no-resolv" "/etc/dnsmasq.conf"
 	else
 		pc_replace "cache-size=1500" "cache-size=9999" $CONFIG
-		# ---------------------------------------------------------------------------
-		# 「DNS劫持=全部」时给默认上游加一条国内后备（strict-order 语义 = 真正的 fallback）
-		#
-		# 背景：本分支（国外优先方案）把 dnsmasq 的【默认上游】设成 127.0.0.1#7913，
-		# 那是经代理隧道出国的解析器（cdns / dns2socks / chinadns-ng / ss-tunnel）。
-		# 国内域名靠 cdn.txt 那 11 万行显式指回国内 DNS 来"抢救"，
-		# 但凡是【不在 cdn.txt、也不在 gfwlist 里】的域名，解析都要经隧道出国一趟。
-		# 再叠加 no-resolv —— 没有任何本地/运营商 DNS 作后备 ——
-		# 一旦 7913 抖动、丢包或那个解析器排队，该域名就是彻底解析不出来，
-		# 只能等客户端 DNS 超时（通常 5 秒）后重试。
-		# 表现就是：**流量本身直连的网页偶尔卡住，等一会儿才刷出来**。
-		#
-		# 为什么偏偏"DNS劫持=全部"档才明显：该档把 UDP/53 与 TCP/53 全部 DNAT 到本机，
-		# 并拦掉 DoT/DoH，于是原本自带 DNS（公共 DNS 或 DoH）绕开这条链路的设备
-		# 也被强行拉进来了，这个既有缺陷才暴露出来。
-		# 也就是说根因不在 iptables 劫持规则，而在 dnsmasq 的默认上游没有退路。
-		#
-		# 修法：strict-order + 两条上游。strict-order 的语义是"按配置顺序逐个尝试，
-		# 前一个不响应才用下一个"，这正是 fallback，而不是并发竞速 ——
-		# 不能省掉 strict-order：多条 server= 在默认行为下 dnsmasq 会择快甚至并发，
-		# 那样国外域名可能拿到被污染的国内应答，把 gfwlist 分流毁掉。
-		# 有了 strict-order，只有 7913 真的不响应时才落到国内 DNS。
-		# 注意 gfwlist.conf 里那些 server=/域名/127.0.0.1#7913 是【域名专属】规则，
-		# 优先级高于默认上游、不受本改动影响 —— 被墙域名在 7913 挂掉时仍然解析失败，
-		# 这是刻意的：对这些域名，返回一个可能被污染的结果比解析失败更糟。
-		# 所以本 fallback 精确作用在"既不在 gfwlist 也不在 cdn.txt"的那批域名上，
-		# 正是卡顿的来源。
-		#
-		# pc_insert 是"插在锚点行之后"，多次插同一锚点会【逆序】，
-		# 所以下面的写入顺序是倒着来的，最终 /etc/dnsmasq.conf 里的顺序为：
-		#   no-poll / no-resolv / strict-order / server=127.0.0.1#7913 / server=<国内DNS>#53
-		# ---------------------------------------------------------------------------
-		# ---- strict-order：语义已在 fastlookup 上游源码层面定性过 ----
-		# fastlookup 的上游是 https://github.com/infinet/dnsmasq（koolshare 团队按本系统编译）。
-		# 查过它的源码，三点结论：
-		#   1) src/option.c 里有 { "strict-order", 0, 0, 'o' } -> OPT_ORDER，选项确实被接受；
-		#   2) src/forward.c 的 forward_query() 里
-		#        if (option_bool(OPT_ORDER)) start = daemon->servers;
-		#      —— 严格从配置首条开始，绕开 last_server / 最快服务器那套启发式；
-		#      且【设了 OPT_ORDER 时 forwardall 不会被置 1】，也就是不并发扇出；
-		#      reply_query() 里失败才 for (server = forward->sentto->next; ...) 前进到下一条。
-		#      这正是 fallback 语义，与原版一致 —— 该 fork 只替换了"域名->规则"的匹配存储
-		#      （链表换成分层哈希），server 列表的遍历与 OPT_ORDER 分支是原版代码未动，
-		#      域名专属规则是同一循环里的过滤而非另一条路径。
-		#   3) 反过来说，【不加 strict-order 时 forwardall=1 是真的并发发给所有上游、谁先回用谁】。
-		#      对被墙域名，国内 DNS 的污染应答延迟低得多、几乎必然胜出并被缓存，
-		#      gfwlist 分流会被彻底毁掉。所以 strict-order 不是"谨慎起见"，是必要条件。
-		#
-		# 既然如此为什么还留运行时探测：koolshare 的编译快照未必与上游 master 一致，
-		# 而 /koolshare/bin/dnsmasq 是 UPX 压缩的静态 ELF（"UPX!" 签名，整个文件仅 339 条
-		# 可打印字符串），本地扫字符串连确定在用的 no-resolv/all-servers/cache-size 都扫不到，
-		# 无法离线核对实际这一份。探测成本极低，且把"支不支持"变成界面上可见的状态，值得留。
-		# 探测对象取 /usr/sbin/dnsmasq —— 挂了 fastlookup 时就是 fastlookup 本体，
-		# 没挂就是固件原版，都是"即将真正运行的那个二进制"；
-		# -C /dev/null 把能力探测与配置本身的合法性隔开。
-		#
-		# 探测失败（预期不该发生）时【不加第二上游】：理由见上面第 3 点，
-		# 宁可放弃这个延迟优化，也不能牺牲分流正确性。
-		ss_basic_dns_hijack=`dbus get ss_basic_dns_hijack`
-		if [ "$ss_basic_dns_hijack" == "2" ];then
-			if /usr/sbin/dnsmasq --test --strict-order -C /dev/null >/dev/null 2>&1;then
-				# 端口跟着 CDN_PORT 走：选 SmartDNS 时后备上游是 127.0.0.1#5335，
-				# 写成 #53 会指到一个没人监听的端口，后备等于不存在。
-				DNS_FB="$CDN"; DNS_FB_PORT="$CDN_PORT"
-				[ -z "$DNS_FB" ] && { DNS_FB="$CDN1"; DNS_FB_PORT="53"; }
-				[ -z "$DNS_FB" ] && { DNS_FB="223.5.5.5"; DNS_FB_PORT="53"; }
-				pc_insert "no-poll" "server=$DNS_FB#$DNS_FB_PORT" "/etc/dnsmasq.conf"
-				pc_insert "no-poll" "server=127.0.0.1#7913" "/etc/dnsmasq.conf"
-				pc_insert "no-poll" "strict-order" "/etc/dnsmasq.conf"
-				dbus set ss_runtime_dns_fallback="on" >/dev/null 2>&1
-			else
-				logger -t "科学上网" "当前dnsmasq不接受strict-order，未启用DNS解析后备，保持单上游127.0.0.1#7913。注意：fastlookup上游(infinet/dnsmasq)源码里是支持该选项的，出现此提示说明当前二进制是较老或改动过的编译快照，建议反馈。不加第二上游是刻意的：无strict-order时dnsmasq会并发扇出所有上游并采用最先返回者，被墙域名会拿到低延迟的污染应答，分流会被毁掉。"
-				pc_insert "no-poll" "server=127.0.0.1#7913" "/etc/dnsmasq.conf"
-				dbus set ss_runtime_dns_fallback="unsupported" >/dev/null 2>&1
-			fi
-		else
-			pc_insert "no-poll" "server=127.0.0.1#7913" "/etc/dnsmasq.conf"
-			dbus set ss_runtime_dns_fallback="off" >/dev/null 2>&1
-		fi
+		pc_insert "no-poll" "server=127.0.0.1#7913" "/etc/dnsmasq.conf"
 		pc_insert "no-poll" "no-resolv" "/etc/dnsmasq.conf"
 	fi
 }

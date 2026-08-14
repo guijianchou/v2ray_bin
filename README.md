@@ -1,7 +1,7 @@
 # Shadowsocks for koolshare Merlin 380 ARM
 
 科学上网插件的 armv7l 分支，基于 [cary-sas/v2ray_bin](https://github.com/cary-sas/v2ray_bin)，
-在其之上**聚焦大陆白名单场景**做链路修复与界面精简。上游本身衍生自
+在其之上**聚焦UDP和QUIC加速稳定性**做链路修复与界面精简。上游本身衍生自
 [fancyss_arm380](https://github.com/hq450/fancyss_history_package/tree/master/legacy/fancyss_arm380)。
 
 当前版本：**5.3.0** · 离线包 `shadowsocks-5.3.0-beta3.tar.gz`
